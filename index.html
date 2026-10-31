@@ -168,11 +168,7 @@ const DEFAULT_CATS = [
   { id: 'cenas', name: 'Cenas', emoji: '🍽️', color: '#f08c00', row: 'Varios' },
   { id: 'padel', name: 'Padel', emoji: '🎾', color: '#2f9e44', row: 'Varios' },
   { id: 'salidas', name: 'Salidas', emoji: '🍻', color: '#d6336c', row: 'Varios' },
-  { id: 'super', name: 'Supermercado', emoji: '🛒', color: '#37b24d', row: 'Varios' },
   { id: 'delivery', name: 'Delivery', emoji: '🛵', color: '#e8590c', row: 'Varios' },
-  { id: 'transporte', name: 'Transporte', emoji: '🚕', color: '#1c7ed6', row: 'Varios' },
-  { id: 'salud', name: 'Salud', emoji: '💊', color: '#e03131', row: 'Varios' },
-  { id: 'subs', name: 'Suscripciones', emoji: '📺', color: '#ae3ec9', row: 'Varios' },
   { id: 'compras', name: 'Compras', emoji: '🛍️', color: '#0c8599', row: 'Varios' },
   { id: 'otros', name: 'Otros', emoji: '📦', color: '#868e96', row: 'Varios' },
   { id: 'carlos', name: 'Carlos', emoji: '🤝', color: '#5c7cfa', row: 'Carlos', preset: 50000 },
@@ -203,7 +199,18 @@ const KW = {
 };
 
 function load() {
-  try { const j = JSON.parse(localStorage.getItem(KEY)); if (j && j.entries) return j; } catch (e) {}
+  try {
+    const j = JSON.parse(localStorage.getItem(KEY));
+    if (j && j.entries) {
+      // Se quitan las categorías que se pagan con tarjeta (solo si no tienen movimientos)
+      if (j.settings && !j.settings.cleanup1) {
+        const quitar = ['super', 'transporte', 'salud', 'subs'];
+        j.categories = j.categories.filter(c => !quitar.includes(c.id) || j.entries.some(e => e.cat === c.id));
+        j.settings.cleanup1 = true;
+      }
+      return j;
+    }
+  } catch (e) {}
   return { entries: [], categories: DEFAULT_CATS, settings: { url: '', token: '', rate: 1600, runway: null, runwayText: '', lastSync: null, theme: 'auto' } };
 }
 let S = load();
@@ -322,10 +329,18 @@ function listView() {
       ${top ? `<div class="sub" style="margin:2px 0 10px">${top}</div>` : ''}
       <button class="pill on" data-a="closing" data-y="${cl.y}" data-m="${cl.m}">Ver desglose completo</button></div>`;
   }
-  if (S.settings.runway != null && S.settings.runway !== '') {
-    const v = ui.showRunway ? 'US$ ' + new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }).format(S.settings.runway) : 'US$ •••••';
-    html += `<div class="card runway"><div><div class="sub" style="margin:0">Ahorros</div><b>${v}</b></div>
-      <button class="pill" data-a="runway">${ui.showRunway ? '🙈 Ocultar' : '👁 Ver'}</button></div>`;
+  {
+    const sa = S.settings.saldoArs, ru = S.settings.runway;
+    const hasSa = sa != null && sa !== '', hasRu = ru != null && ru !== '';
+    if (hasSa || hasRu) {
+      const ruTxt = hasRu ? (ui.showRunway ? 'US$ ' + new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }).format(ru) : 'US$ •••••') : '—';
+      const hora = S.settings.lastSync ? ' · ' + new Date(S.settings.lastSync).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '';
+      html += `<div class="card"><div class="tot" style="grid-template-columns:1.2fr 1fr">
+        <div><div class="label">Saldo en pesos</div><div class="big ${hasSa && sa < 0 ? 'neg' : ''}">${hasSa ? money(sa) : '—'}</div></div>
+        <div><div class="label">Ahorros</div><div class="big">${ruTxt}</div></div></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px"><div class="sub" style="margin:0">Según tu planilla${hora}</div>
+        ${hasRu ? `<button class="pill" data-a="runway">${ui.showRunway ? '🙈 Ocultar' : '👁 Ver ahorros'}</button>` : ''}</div></div>`;
+    }
   }
   html += `<div class="card hero"><div class="tot">
     <div><div class="label">Gastos</div><div class="big">${money(t.gasto)}</div></div>
@@ -514,6 +529,12 @@ function afterSave(date, msg) {
 }
 
 /* ---------- sincronización con el Sheet ---------- */
+function applyStatus(st) {
+  if (!st) return;
+  S.settings.runway = st.runway === '' ? null : st.runway;
+  S.settings.runwayText = st.runwayText;
+  if (st.saldoArs !== undefined) S.settings.saldoArs = st.saldoArs === '' ? null : st.saldoArs;
+}
 async function api(body) {
   const { url, token } = S.settings;
   if (!url) throw new Error('Falta configurar el Sheet');
@@ -540,7 +561,7 @@ async function sync(manual) {
       if (r.ok) { e.synced = true; e.known = true; e.err = null; } else e.err = r.error;
     });
     S.entries = S.entries.filter(e => !(e.deleted && e.synced));
-    if (j.status) { S.settings.runway = j.status.runway === '' ? null : j.status.runway; S.settings.runwayText = j.status.runwayText; }
+    applyStatus(j.status);
     S.settings.lastSync = Date.now();
     save(); render();
     const bad = S.entries.filter(e => e.err).length;
@@ -568,7 +589,7 @@ async function pullAll() {
       if (!mine) added++;
       upsert(rec);
     });
-    if (j.status) { S.settings.runway = j.status.runway; S.settings.runwayText = j.status.runwayText; }
+    applyStatus(j.status);
     S.settings.lastSync = Date.now();
     save(); render(); toast(`Traídos del Sheet: ${added} nuevos`);
   } catch (err) { toast('No pude traer los datos: ' + err.message); }
@@ -586,7 +607,7 @@ function openConn() {
     S.settings.url = $('#cUrl').value.trim(); S.settings.token = $('#cTok').value.trim(); save();
     try {
       const j = await api({ action: 'ping' });
-      S.settings.runway = j.status.runway === '' ? null : j.status.runway; save();
+      applyStatus(j.status); save();
       closeSheet(); render(); toast('✓ Conectado. Último mes en el Sheet: ' + (j.status.ultimoMes || '—')); sync();
     } catch (err) { toast('No conecta: ' + err.message); }
   };
