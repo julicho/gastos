@@ -163,7 +163,7 @@ const numStr = n => String(n).replace('.', ',');
 
 /* ---------- datos ---------- */
 const KEY = 'gastos.v2';
-const APP_VERSION = 'v7 · 1 nov 2026';
+const APP_VERSION = 'v8 · 1 nov 2026';
 // row = nombre de la fila del Sheet donde se acumula (Venta USD). Las categorías nuevas van a "Varios".
 const DEFAULT_CATS = [
   { id: 'cenas', name: 'Cenas', emoji: '🍽️', color: '#f08c00', row: 'Varios' },
@@ -172,8 +172,8 @@ const DEFAULT_CATS = [
   { id: 'delivery', name: 'Delivery', emoji: '🛵', color: '#e8590c', row: 'Varios' },
   { id: 'compras', name: 'Compras', emoji: '🛍️', color: '#0c8599', row: 'Varios' },
   { id: 'otros', name: 'Otros', emoji: '📦', color: '#868e96', row: 'Varios' },
-  { id: 'carlos', name: 'Carlos', emoji: '🤝', color: '#5c7cfa', row: 'Carlos', preset: 50000 },
-  { id: 'marcel', name: 'Inglés Marcel', emoji: '🇬🇧', color: '#4263eb', row: 'Ingles Marcel', preset: 54775 },
+  { id: 'carlos', name: 'Carlos', emoji: '🤝', color: '#5c7cfa', row: 'Carlos' },
+  { id: 'marcel', name: 'Inglés Marcel', emoji: '🇬🇧', color: '#4263eb', row: 'Ingles Marcel' },
   { id: 'efectivo', name: 'Retiro de efectivo', emoji: '💵', color: '#2b8a3e', row: 'Efectivo' },
   { id: 'alquiler', name: 'Alquiler', emoji: '🏠', color: '#7048e8', row: 'Alquiler' },
   { id: 'expensas', name: 'Expensas', emoji: '🏢', color: '#9775fa', row: 'Expensas' },
@@ -208,6 +208,11 @@ function load() {
         const quitar = ['super', 'transporte', 'salud', 'subs'];
         j.categories = j.categories.filter(c => !quitar.includes(c.id) || j.entries.some(e => e.cat === c.id));
         j.settings.cleanup1 = true;
+      }
+      // Se quitan los atajos (monto fijo) de Carlos y Marcel de Inicio
+      if (j.settings && !j.settings.cleanup2) {
+        j.categories.forEach(c => { if (c.id === 'carlos' || c.id === 'marcel') delete c.preset; });
+        j.settings.cleanup2 = true;
       }
       return j;
     }
