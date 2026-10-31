@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#0f1412">
+<meta name="theme-color" content="#0e3a8a">
+<script>try{var __s=JSON.parse(localStorage.getItem("gastos.v2")||"{}").settings||{},__t=__s.theme||"auto",__h=new Date().getHours();document.documentElement.dataset.theme=__t==="auto"?(__h>=7&&__h<19?"light":"dark"):__t}catch(e){}</script>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -14,16 +15,16 @@
 <title>Gastos</title>
 <style>
 :root {
-  --bg: #f4f6f5; --card: #ffffff; --ink: #121816; --mute: #6b7872; --line: #e3e8e5;
-  --accent: #1f9d6b; --accent-ink: #ffffff; --danger: #d64545; --chip: #eef2f0;
-  --shadow: 0 1px 2px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.05);
+  --bg: #eef3fb; --card: #ffffff; --ink: #0b1f4d; --mute: #5d6f98; --line: #dbe4f5;
+  --accent: #0e3a8a; --accent-ink: #ffffff; --gold: #fcb131; --danger: #d64545; --good: #12945a; --chip: #e6edfa;
+  --shadow: 0 1px 2px rgba(11,31,77,.08), 0 4px 16px rgba(11,31,77,.06);
+  --head: #0e3a8a;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0f1412; --card: #172019; --ink: #eaf1ed; --mute: #8a9a92; --line: #25312a;
-    --accent: #34c58a; --accent-ink: #06231a; --danger: #ff6b6b; --chip: #1f2b24;
-    --shadow: 0 1px 2px rgba(0,0,0,.4);
-  }
+html[data-theme="dark"] {
+  --bg: #07122b; --card: #0e1f48; --ink: #eaf0ff; --mute: #8fa2cf; --line: #1d3166;
+  --accent: #fcb131; --accent-ink: #0b1f4d; --danger: #ff7676; --good: #37d08a; --chip: #16295a;
+  --shadow: 0 1px 2px rgba(0,0,0,.4);
+  --head: #0a2a66;
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
@@ -31,18 +32,21 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; border: 0; background: none; }
 #app { display: flex; flex-direction: column; height: 100%; max-width: 560px; margin: 0 auto; }
-header { padding: calc(env(safe-area-inset-top) + 12px) 16px 8px; display: flex; align-items: center; gap: 8px; }
-header h1 { flex: 1; margin: 0; font-size: 20px; text-align: center; }
+header { padding: calc(env(safe-area-inset-top) + 12px) 16px 12px; display: flex; align-items: center; gap: 8px; background: var(--head); color: #fff; border-bottom: 4px solid var(--gold); margin-bottom: 12px; }
+header h1 { flex: 1; margin: 0; font-size: 20px; text-align: center; color: #fff; }
+header .icon-btn { background: rgba(255,255,255,.16); color: #fff; box-shadow: none; }
 .icon-btn { width: 40px; height: 40px; border-radius: 12px; background: var(--card); box-shadow: var(--shadow); font-size: 18px; }
 .pill { padding: 6px 12px; border-radius: 999px; background: var(--chip); font-size: 13px; font-weight: 600; }
 .pill.on { background: var(--accent); color: var(--accent-ink); }
 main { flex: 1; overflow-y: auto; padding: 4px 16px 150px; -webkit-overflow-scrolling: touch; }
+.card.hero { border-top: 5px solid var(--gold); }
+.card.closing { border-left: 5px solid var(--gold); }
 .card { background: var(--card); border-radius: 18px; box-shadow: var(--shadow); padding: 16px; margin-bottom: 14px; }
 .tot { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
 .tot .label { color: var(--mute); font-size: 12px; }
 .tot .big { font-size: 19px; font-weight: 700; letter-spacing: -.02em; }
 .sub { color: var(--mute); font-size: 13px; margin-top: 8px; }
-.pos { color: var(--accent); } .neg { color: var(--danger); }
+.pos { color: var(--good); } .neg { color: var(--danger); }
 .runway { display: flex; justify-content: space-between; align-items: center; }
 .runway b { font-size: 22px; }
 .chips { display: flex; gap: 8px; overflow-x: auto; margin: 0 -16px 12px; padding: 0 16px; }
@@ -65,7 +69,7 @@ nav .in { width: 100%; max-width: 560px; display: flex; }
 nav button { flex: 1; padding: 10px 0 8px; font-size: 11px; color: var(--mute); display: flex; flex-direction: column; align-items: center; gap: 2px; }
 nav button span { font-size: 22px; }
 nav button.on { color: var(--accent); font-weight: 700; }
-.fab { position: fixed; right: max(16px, calc(50% - 264px)); bottom: calc(env(safe-area-inset-bottom) + 76px); width: 58px; height: 58px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 32px; line-height: 1; box-shadow: 0 6px 20px rgba(0,0,0,.3); z-index: 6; }
+.fab { position: fixed; right: max(16px, calc(50% - 264px)); bottom: calc(env(safe-area-inset-bottom) + 76px); width: 58px; height: 58px; border-radius: 50%; background: var(--gold); color: #0b1f4d; font-size: 32px; line-height: 1; box-shadow: 0 6px 20px rgba(0,0,0,.3); z-index: 6; }
 .bar { margin-bottom: 14px; width: 100%; text-align: left; display: block; }
 .bar .top { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 5px; gap: 8px; }
 .bar .track { height: 10px; border-radius: 6px; background: var(--chip); overflow: hidden; }
@@ -200,7 +204,7 @@ const KW = {
 
 function load() {
   try { const j = JSON.parse(localStorage.getItem(KEY)); if (j && j.entries) return j; } catch (e) {}
-  return { entries: [], categories: DEFAULT_CATS, settings: { url: '', token: '', rate: 1600, runway: null, runwayText: '', lastSync: null } };
+  return { entries: [], categories: DEFAULT_CATS, settings: { url: '', token: '', rate: 1600, runway: null, runwayText: '', lastSync: null, theme: 'auto' } };
 }
 let S = load();
 let storageOk = true;
@@ -234,11 +238,19 @@ function suggestCat(concept, h = history()) {
 
 /* ---------- UI state ---------- */
 const now = new Date();
-const ui = { view: 'list', y: now.getFullYear(), m: now.getMonth(), scope: 'todo', filter: null };
+const ui = { view: 'list', y: now.getFullYear(), m: now.getMonth(), scope: 'todo', filter: null, showRunway: false };
 const monthKey = (y, m) => `${y}-${pad(m + 1)}`;
 const monthName = (y, m) => cap(new Date(y, m, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' }));
 const monthEntries = (y, m) => live().filter(e => e.date.startsWith(monthKey(y, m)));
 function shiftMonth(d) { const dt = new Date(ui.y, ui.m + d, 1); ui.y = dt.getFullYear(); ui.m = dt.getMonth(); }
+// Claro de 7 a 19 h, oscuro el resto; se puede forzar en Más > Apariencia.
+function applyTheme() {
+  const t = S.settings.theme || 'auto', h = new Date().getHours();
+  document.documentElement.dataset.theme = t === 'auto' ? (h >= 7 && h < 19 ? 'light' : 'dark') : t;
+}
+const THEME_LABEL = { auto: 'Automática (claro de día, oscuro de noche)', light: 'Siempre claro', dark: 'Siempre oscuro' };
+let runwayTimer = null;
+function hideRunway() { clearTimeout(runwayTimer); if (ui.showRunway) { ui.showRunway = false; render(); } }
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 2600); }
 function openSheet(html) { $('#sheet').innerHTML = '<div class="grab"></div>' + html; $('#overlay').hidden = false; }
 function closeSheet() { $('#overlay').hidden = true; $('#sheet').innerHTML = ''; }
@@ -286,15 +298,36 @@ function row(e) {
     <div class="amt ${ing ? 'pos' : ''}">${ing ? '+' : '−'}${money(e.amount, e.currency)}${sub}</div></button>`;
 }
 
+// En los últimos días del mes (y los primeros del siguiente) se ofrece el desglose del mes que cierra.
+function closingMonth() {
+  const d = new Date(), day = d.getDate(), last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  let y = d.getFullYear(), m = d.getMonth();
+  if (day <= 3) { const p = new Date(y, m - 1, 1); y = p.getFullYear(); m = p.getMonth(); }
+  else if (day < last - 2) return null;
+  return totals(y, m).gasto > 0 ? { y, m } : null;
+}
+
 function listView() {
   const t = totals(ui.y, ui.m);
   const items = monthEntries(ui.y, ui.m);
   let html = syncBanner();
-  if (S.settings.runway != null && S.settings.runway !== '') {
-    html += `<div class="card runway"><div><div class="sub" style="margin:0">Ahorros (celda verde del Sheet)</div><b>US$ ${new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }).format(S.settings.runway)}</b></div>
-      <button class="pill" data-a="sync">↻ Actualizar</button></div>`;
+  const cl = closingMonth();
+  if (cl) {
+    const ct = totals(cl.y, cl.m);
+    const by = {};
+    monthEntries(cl.y, cl.m).filter(e => e.type === 'mov' && e.kind === 'gasto' && !cat(e.cat).card).forEach(e => by[e.cat] = (by[e.cat] || 0) + arsOf(e));
+    const top = Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([id, v]) => `${cat(id).emoji} ${esc(cat(id).name)} ${money(v)}`).join(' · ');
+    html += `<div class="card closing"><div class="sub" style="margin:0">Cierre de ${monthName(cl.y, cl.m)}</div>
+      <div style="font-size:22px;font-weight:700;margin:2px 0">${money(ct.gasto)} en gastos</div>
+      ${top ? `<div class="sub" style="margin:2px 0 10px">${top}</div>` : ''}
+      <button class="pill on" data-a="closing" data-y="${cl.y}" data-m="${cl.m}">Ver desglose completo</button></div>`;
   }
-  html += `<div class="card"><div class="tot">
+  if (S.settings.runway != null && S.settings.runway !== '') {
+    const v = ui.showRunway ? 'US$ ' + new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }).format(S.settings.runway) : 'US$ •••••';
+    html += `<div class="card runway"><div><div class="sub" style="margin:0">Ahorros</div><b>${v}</b></div>
+      <button class="pill" data-a="runway">${ui.showRunway ? '🙈 Ocultar' : '👁 Ver'}</button></div>`;
+  }
+  html += `<div class="card hero"><div class="tot">
     <div><div class="label">Gastos</div><div class="big">${money(t.gasto)}</div></div>
     <div><div class="label">Ingresos</div><div class="big pos">${money(t.ingreso)}</div></div>
     <div><div class="label">Tarjetas</div><div class="big">${money(t.tarjeta)}</div></div></div>
@@ -355,6 +388,7 @@ function moreView() {
   <button class="menu" data-a="sync"><span class="e">↻</span><span>Sincronizar ahora<small>Envía lo pendiente y actualiza los ahorros</small></span></button>
   <button class="menu" data-a="pull"><span class="e">⬇️</span><span>Traer todo del Sheet<small>Para recuperar datos en un teléfono nuevo</small></span></button>
   <button class="menu" data-a="cats"><span class="e">🏷️</span><span>Categorías y atajos<small>Agregar categorías, fila del Sheet y monto fijo</small></span></button>
+  <button class="menu" data-a="theme"><span class="e">🌗</span><span>Apariencia<small>${THEME_LABEL[s.theme || 'auto']}</small></span></button>
   <button class="menu" data-a="rate"><span class="e">💱</span><span>Tipo de cambio por defecto<small>${money(s.rate)} por USD (se usa para pasar gastos en USD a pesos)</small></span></button>
   <button class="menu" data-a="backup"><span class="e">💾</span><span>Copia local (JSON)<small>El respaldo principal es tu Sheet</small></span></button>
   <p class="note">Tu Google Sheet es la base de datos: cada gasto se suma en su fila del mes y el detalle queda en una nota de esa fila. Lo que cargues sin señal se guarda y se envía solo cuando vuelva la conexión. ${storageOk ? '' : '<b>⚠️ El guardado local está bloqueado.</b>'}</p>`;
@@ -618,6 +652,9 @@ document.addEventListener('click', ev => {
   else if (a === 'preset') { const c = cat(b.dataset.id); openMov('gasto', null, { cat: c.id, amount: c.preset, currency: 'ARS' }); }
   else if (a === 'edit') { const e = S.entries.find(x => x.id === b.dataset.id); if (e) e.type === 'fx' ? openFx(e.id) : openMov(e.kind, e.id); }
   else if (a === 'close') closeSheet();
+  else if (a === 'runway') { ui.showRunway = !ui.showRunway; clearTimeout(runwayTimer); if (ui.showRunway) runwayTimer = setTimeout(hideRunway, 8000); render(); }
+  else if (a === 'closing') { ui.y = +b.dataset.y; ui.m = +b.dataset.m; ui.view = 'report'; ui.scope = 'todo'; render(); }
+  else if (a === 'theme') { const o = ['auto', 'light', 'dark']; S.settings.theme = o[(o.indexOf(S.settings.theme || 'auto') + 1) % 3]; save(); applyTheme(); render(); }
   else if (a === 'scope') { ui.scope = b.dataset.v; render(); }
   else if (a === 'conn') openConn();
   else if (a === 'sync') sync(true);
@@ -631,8 +668,10 @@ document.addEventListener('click', ev => {
 });
 document.addEventListener('keydown', ev => { if (ev.key === 'Escape') closeSheet(); });
 window.addEventListener('online', () => sync());
-document.addEventListener('visibilitychange', () => { if (!document.hidden) sync(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) hideRunway(); else { applyTheme(); sync(); } });
+setInterval(applyTheme, 60000);
 
+applyTheme();
 render();
 sync();
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
