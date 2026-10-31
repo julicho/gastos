@@ -1,20 +1,23 @@
 // Cachea la app para que abra sin señal. Las llamadas al Sheet no pasan por acá (son de otro origen).
-const V = 'gastos-v5';
+// Estrategia: primero la red (así una versión nueva se ve al abrir), y la copia guardada solo si no hay señal.
+const V = 'gastos-v7';
 const ASSETS = ['./', 'index.html', 'manifest.webmanifest', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(V).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // 'reload' salta la caché HTTP del navegador para no guardar archivos viejos
+  e.waitUntil(caches.open(V).then(c => c.addAll(ASSETS.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== V).map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
-// Devuelve lo cacheado al instante y actualiza en segundo plano (se ve la versión nueva en la próxima apertura).
 self.addEventListener('fetch', e => {
-  const u = new URL(e.request.url);
-  if (e.request.method !== 'GET' || u.origin !== location.origin) return;
-  e.respondWith(caches.open(V).then(async c => {
-    const hit = await c.match(e.request, { ignoreSearch: true });
-    const net = fetch(e.request).then(r => { if (r.ok) c.put(e.request, r.clone()); return r; }).catch(() => hit);
-    return hit || net;
-  }));
+  const req = e.request, u = new URL(req.url);
+  if (req.method !== 'GET' || u.origin !== location.origin) return;
+  const cached = () => caches.match(req, { ignoreSearch: true });
+  const fresh = fetch(req.url, { cache: 'no-cache' }).then(r => {
+    if (r.ok) { const cp = r.clone(); caches.open(V).then(c => c.put(req, cp)); }
+    return r;
+  });
+  const timeout = new Promise(res => setTimeout(() => res(null), 3000));   // con mala señal, usa la copia guardada
+  e.respondWith(Promise.race([fresh, timeout]).then(r => r || cached().then(h => h || fresh)).catch(() => cached()));
 });

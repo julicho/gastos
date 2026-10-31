@@ -163,6 +163,7 @@ const numStr = n => String(n).replace('.', ',');
 
 /* ---------- datos ---------- */
 const KEY = 'gastos.v2';
+const APP_VERSION = 'v7 · 1 nov 2026';
 // row = nombre de la fila del Sheet donde se acumula (Venta USD). Las categorías nuevas van a "Varios".
 const DEFAULT_CATS = [
   { id: 'cenas', name: 'Cenas', emoji: '🍽️', color: '#f08c00', row: 'Varios' },
@@ -222,7 +223,6 @@ function save() {
 const cat = id => S.categories.find(c => c.id === id) || S.categories.find(c => c.id === 'otros') || S.categories[0];
 const live = () => S.entries.filter(e => !e.deleted);
 const movs = () => live().filter(e => e.type === 'mov');
-const arsOf = e => e.currency === 'ARS' ? e.amount : e.amount * (e.rate || S.settings.rate);
 
 function history() {
   const h = {};
@@ -245,7 +245,7 @@ function suggestCat(concept, h = history()) {
 
 /* ---------- UI state ---------- */
 const now = new Date();
-const ui = { view: 'list', y: now.getFullYear(), m: now.getMonth(), scope: 'todo', filter: null, showRunway: false };
+const ui = { cur: 'ARS', view: 'list', y: now.getFullYear(), m: now.getMonth(), scope: 'todo', filter: null, showRunway: false };
 const monthKey = (y, m) => `${y}-${pad(m + 1)}`;
 const monthName = (y, m) => cap(new Date(y, m, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' }));
 const monthEntries = (y, m) => live().filter(e => e.date.startsWith(monthKey(y, m)));
@@ -262,14 +262,14 @@ function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.ad
 function openSheet(html) { $('#sheet').innerHTML = '<div class="grab"></div>' + html; $('#overlay').hidden = false; }
 function closeSheet() { $('#overlay').hidden = true; $('#sheet').innerHTML = ''; }
 
-// Totales del mes (en ARS). Los pagos de tarjeta se separan porque son el resumen, no el detalle.
+// Totales del mes: pesos y dólares por separado, sin convertir. Los pagos de tarjeta se separan porque son el resumen, no el detalle.
 function totals(y, m) {
-  const t = { gasto: 0, ingreso: 0, tarjeta: 0, usdGasto: 0 };
+  const t = { gasto: 0, ingreso: 0, tarjeta: 0, usdGasto: 0, usdIngreso: 0 };
   monthEntries(y, m).filter(e => e.type === 'mov').forEach(e => {
-    const c = cat(e.cat);
-    if (e.kind === 'ingreso') t.ingreso += arsOf(e);
-    else if (c.card) t.tarjeta += arsOf(e);
-    else { t.gasto += arsOf(e); if (e.currency === 'USD') t.usdGasto += e.amount; }
+    const usd = e.currency === 'USD';
+    if (e.kind === 'ingreso') { if (usd) t.usdIngreso += e.amount; else t.ingreso += e.amount; }
+    else if (cat(e.cat).card) { if (!usd) t.tarjeta += e.amount; }
+    else if (usd) t.usdGasto += e.amount; else t.gasto += e.amount;
   });
   return t;
 }
@@ -299,7 +299,7 @@ function row(e) {
       <div class="amt">${money(e.ars)}<small>US$ ${new Intl.NumberFormat('es-AR').format(e.usd)}</small></div></button>`;
   }
   const c = cat(e.cat), ing = e.kind === 'ingreso';
-  const sub = e.currency === 'USD' ? `<small>≈ ${money(arsOf(e))}</small>` : '';
+  const sub = '';
   return `<button class="row" data-a="edit" data-id="${e.id}" style="--c:${c.color}"><div class="dot">${c.emoji}</div>
     <div class="mid"><div class="t">${esc(e.concept || c.name)}</div><div class="s">${esc(c.name)}${e.synced ? '' : ' · <span class="pend">⏳</span>'}${e.err ? ' · ⚠️' : ''}</div></div>
     <div class="amt ${ing ? 'pos' : ''}">${ing ? '+' : '−'}${money(e.amount, e.currency)}${sub}</div></button>`;
@@ -311,7 +311,8 @@ function closingMonth() {
   let y = d.getFullYear(), m = d.getMonth();
   if (day <= 3) { const p = new Date(y, m - 1, 1); y = p.getFullYear(); m = p.getMonth(); }
   else if (day < last - 2) return null;
-  return totals(y, m).gasto > 0 ? { y, m } : null;
+  const t = totals(y, m);
+  return (t.gasto > 0 || t.usdGasto > 0) ? { y, m } : null;
 }
 
 function listView() {
@@ -322,10 +323,11 @@ function listView() {
   if (cl) {
     const ct = totals(cl.y, cl.m);
     const by = {};
-    monthEntries(cl.y, cl.m).filter(e => e.type === 'mov' && e.kind === 'gasto' && !cat(e.cat).card).forEach(e => by[e.cat] = (by[e.cat] || 0) + arsOf(e));
+    monthEntries(cl.y, cl.m).filter(e => e.type === 'mov' && e.kind === 'gasto' && e.currency === 'ARS' && !cat(e.cat).card).forEach(e => by[e.cat] = (by[e.cat] || 0) + e.amount);
     const top = Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([id, v]) => `${cat(id).emoji} ${esc(cat(id).name)} ${money(v)}`).join(' · ');
     html += `<div class="card closing"><div class="sub" style="margin:0">Cierre de ${monthName(cl.y, cl.m)}</div>
       <div style="font-size:22px;font-weight:700;margin:2px 0">${money(ct.gasto)} en gastos</div>
+      ${ct.usdGasto ? `<div class="sub" style="margin:0 0 4px">y ${money(ct.usdGasto, 'USD')} en dólares</div>` : ''}
       ${top ? `<div class="sub" style="margin:2px 0 10px">${top}</div>` : ''}
       <button class="pill on" data-a="closing" data-y="${cl.y}" data-m="${cl.m}">Ver desglose completo</button></div>`;
   }
@@ -346,7 +348,7 @@ function listView() {
     <div><div class="label">Gastos</div><div class="big">${money(t.gasto)}</div></div>
     <div><div class="label">Ingresos</div><div class="big pos">${money(t.ingreso)}</div></div>
     <div><div class="label">Tarjetas</div><div class="big">${money(t.tarjeta)}</div></div></div>
-    ${t.usdGasto ? `<div class="sub">Incluye US$ ${new Intl.NumberFormat('es-AR').format(t.usdGasto)} en dólares</div>` : ''}</div>`;
+    ${(t.usdGasto || t.usdIngreso) ? `<div class="sub">En dólares: gastos ${money(t.usdGasto, 'USD')} · ingresos ${money(t.usdIngreso, 'USD')}</div>` : ''}</div>`;
   const presets = S.categories.filter(c => c.preset);
   if (presets.length) html += `<div class="chips">` + presets.map(c => `<button data-a="preset" data-id="${c.id}">${c.emoji} ${esc(c.name)} ${money(c.preset)}</button>`).join('') + `</div>`;
   if (!items.length) return html + `<div class="empty"><b>🧾</b>Todavía no hay movimientos este mes.<br>Tocá + para cargar el primero.</div>`;
@@ -355,40 +357,45 @@ function listView() {
   for (const [d, list] of Object.entries(byDay)) {
     const [y, m, dd] = d.split('-').map(Number);
     const label = new Date(y, m - 1, dd).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'short' });
-    const dayTot = list.filter(e => e.type === 'mov' && e.kind === 'gasto' && !cat(e.cat).card).reduce((s, e) => s + arsOf(e), 0);
-    html += `<div class="day"><span>${label}</span><span>${dayTot ? money(dayTot) : ''}</span></div>` + list.map(row).join('');
+    const dg = list.filter(e => e.type === 'mov' && e.kind === 'gasto' && !cat(e.cat).card);
+    const dArs = dg.filter(e => e.currency === 'ARS').reduce((s, e) => s + e.amount, 0), dUsd = dg.filter(e => e.currency === 'USD').reduce((s, e) => s + e.amount, 0);
+    const dayTxt = [dArs ? money(dArs) : '', dUsd ? money(dUsd, 'USD') : ''].filter(Boolean).join(' · ');
+    html += `<div class="day"><span>${label}</span><span>${dayTxt}</span></div>` + list.map(row).join('');
   }
   return html;
 }
 
 function reportView() {
-  const inScope = e => e.type === 'mov' && e.kind === 'gasto' && !cat(e.cat).card && (ui.scope === 'todo' || cat(e.cat).row === 'Varios');
+  const inScope = e => e.type === 'mov' && e.kind === 'gasto' && e.currency === ui.cur && !cat(e.cat).card && (ui.scope === 'todo' || cat(e.cat).row === 'Varios');
   const items = monthEntries(ui.y, ui.m).filter(inScope);
-  const total = items.reduce((s, e) => s + arsOf(e), 0);
-  let html = `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-    <div class="sub" style="margin:0">Gastos del mes (sin pagos de tarjeta)</div>
+  const total = items.reduce((s, e) => s + e.amount, 0);
+  const M = n => money(n, ui.cur);
+  const monedaTxt = ui.cur === 'USD' ? 'dólares' : 'pesos';
+  let html = `<div class="card"><div style="display:flex;gap:6px;margin-bottom:12px"><button class="pill ${ui.cur === 'ARS' ? 'on' : ''}" data-a="cur" data-v="ARS">Pesos</button><button class="pill ${ui.cur === 'USD' ? 'on' : ''}" data-a="cur" data-v="USD">Dólares</button></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+    <div class="sub" style="margin:0">Gastos en ${monedaTxt} (sin pagos de tarjeta)</div>
     <div style="display:flex;gap:6px"><button class="pill ${ui.scope === 'todo' ? 'on' : ''}" data-a="scope" data-v="todo">Todo</button>
     <button class="pill ${ui.scope === 'varios' ? 'on' : ''}" data-a="scope" data-v="varios">Solo Varios</button></div></div>
-    <div style="font-size:34px;font-weight:700;letter-spacing:-.02em;margin-top:6px">${money(total)}</div>
-    <div class="sub" style="margin-top:0">${items.length} gasto${items.length === 1 ? '' : 's'}${items.length ? ` · promedio ${money(total / items.length)}` : ''}</div></div>`;
-  if (!items.length) html += '<div class="empty"><b>📊</b>Sin gastos para mostrar.</div>';
+    <div style="font-size:34px;font-weight:700;letter-spacing:-.02em;margin-top:6px">${M(total)}</div>
+    <div class="sub" style="margin-top:0">${items.length} gasto${items.length === 1 ? '' : 's'}${items.length ? ` · promedio ${M(total / items.length)}` : ''}</div></div>`;
+  if (!items.length) html += `<div class="empty"><b>📊</b>Sin gastos en ${monedaTxt} este mes.</div>`;
   else {
     const by = {};
-    items.forEach(e => { const b = by[e.cat] ||= { v: 0, n: 0 }; b.v += arsOf(e); b.n++; });
+    items.forEach(e => { const b = by[e.cat] ||= { v: 0, n: 0 }; b.v += e.amount; b.n++; });
     html += `<div class="card"><h3>Por categoría</h3>` + Object.entries(by).sort((a, b) => b[1].v - a[1].v).map(([id, b]) => {
       const c = cat(id), p = total ? b.v / total * 100 : 0;
       return `<div class="bar" style="--c:${c.color}"><div class="top"><span>${c.emoji} ${esc(c.name)} <span style="color:var(--mute)">· ${b.n}</span></span>
-        <b>${money(b.v)} <span style="color:var(--mute);font-weight:400">${p.toFixed(0)}%</span></b></div><div class="track"><div class="fill" style="width:${p}%"></div></div></div>`;
+        <b>${M(b.v)} <span style="color:var(--mute);font-weight:400">${p.toFixed(0)}%</span></b></div><div class="track"><div class="fill" style="width:${p}%"></div></div></div>`;
     }).join('') + `</div>`;
     // gastos hormiga: conceptos que se repiten
     const byC = {};
-    items.forEach(e => { const k = norm(e.concept) || '(sin concepto)'; const b = byC[k] ||= { label: e.concept || '(sin concepto)', v: 0, n: 0 }; b.v += arsOf(e); b.n++; });
+    items.forEach(e => { const k = norm(e.concept) || '(sin concepto)'; const b = byC[k] ||= { label: e.concept || '(sin concepto)', v: 0, n: 0 }; b.v += e.amount; b.n++; });
     const top = Object.values(byC).sort((a, b) => b.v - a.v).slice(0, 8);
-    html += `<div class="card"><h3>Dónde se va más plata</h3>` + top.map(b => `<div class="lrow"><span>${esc(b.label)} <span style="color:var(--mute)">×${b.n}</span></span><b>${money(b.v)}</b></div>`).join('') + `</div>`;
+    html += `<div class="card"><h3>Dónde se va más plata</h3>` + top.map(b => `<div class="lrow"><span>${esc(b.label)} <span style="color:var(--mute)">×${b.n}</span></span><b>${M(b.v)}</b></div>`).join('') + `</div>`;
   }
   const ms = [];
   for (let i = 5; i >= 0; i--) { const d = new Date(ui.y, ui.m - i, 1); ms.push({ y: d.getFullYear(), m: d.getMonth(), cur: i === 0 }); }
-  ms.forEach(x => x.v = monthEntries(x.y, x.m).filter(inScope).reduce((s, e) => s + arsOf(e), 0));
+  ms.forEach(x => x.v = monthEntries(x.y, x.m).filter(inScope).reduce((s, e) => s + e.amount, 0));
   const max = Math.max(...ms.map(x => x.v), 1);
   html += `<div class="card"><h3>Últimos 6 meses</h3><div class="months">` + ms.map(x =>
     `<div class="${x.cur ? 'cur' : ''}"><i style="height:${Math.max(x.v / max * 90, 3)}%"></i>${new Date(x.y, x.m, 1).toLocaleDateString('es-AR', { month: 'short' })}</div>`).join('') + `</div></div>`;
@@ -404,7 +411,7 @@ function moreView() {
   <button class="menu" data-a="pull"><span class="e">⬇️</span><span>Traer todo del Sheet<small>Para recuperar datos en un teléfono nuevo</small></span></button>
   <button class="menu" data-a="cats"><span class="e">🏷️</span><span>Categorías y atajos<small>Agregar categorías, fila del Sheet y monto fijo</small></span></button>
   <button class="menu" data-a="theme"><span class="e">🌗</span><span>Apariencia<small>${THEME_LABEL[s.theme || 'auto']}</small></span></button>
-  <button class="menu" data-a="rate"><span class="e">💱</span><span>Tipo de cambio por defecto<small>${money(s.rate)} por USD (se usa para pasar gastos en USD a pesos)</small></span></button>
+  <button class="menu" data-a="update"><span class="e">🔄</span><span>Buscar actualización<small>Versión de la app: ${APP_VERSION}</small></span></button>
   <button class="menu" data-a="backup"><span class="e">💾</span><span>Copia local (JSON)<small>El respaldo principal es tu Sheet</small></span></button>
   <p class="note">Tu Google Sheet es la base de datos: cada gasto se suma en su fila del mes y el detalle queda en una nota de esa fila. Lo que cargues sin señal se guarda y se envía solo cuando vuelva la conexión. ${storageOk ? '' : '<b>⚠️ El guardado local está bloqueado.</b>'}</p>`;
 }
@@ -424,7 +431,7 @@ function openMenu() {
 
 function openMov(kind, id, preset = {}) {
   const e = id ? S.entries.find(x => x.id === id) : null;
-  const d = e ? { ...e } : { type: 'mov', kind, date: today(), concept: '', cat: preset.cat || null, currency: preset.currency || lastCurrency(), amount: preset.amount || '', rate: S.settings.rate };
+  const d = e ? { ...e } : { type: 'mov', kind, date: today(), concept: '', cat: preset.cat || null, currency: preset.currency || lastCurrency(), amount: preset.amount || '' };
   if (!e && d.cat && cat(d.cat).cur) d.currency = cat(d.cat).cur;
   const only = preset.only; // 'card' limita las categorías a tarjetas
   let picked = !!d.cat;
@@ -438,15 +445,13 @@ function openMov(kind, id, preset = {}) {
     <input class="in" id="fCon" placeholder="${d.kind === 'ingreso' ? 'Ej: me devuelve Fede' : 'Ej: Uber, cena, padel…'}" value="${esc(d.concept)}" autocomplete="off">
     <div class="hint" id="fHint"></div>
     <label class="f">Categoría</label><div class="cats" id="fCats">${catBtns()}</div>
-    <div class="two"><div><label class="f">Fecha</label><input class="in" type="date" id="fDate" value="${d.date}"></div>
-    <div id="fRateBox"><label class="f">TC (ARS por USD)</label><input class="in" id="fRate" inputmode="decimal" value="${numStr(d.rate || S.settings.rate)}"></div></div>
+    <label class="f">Fecha</label><input class="in" type="date" id="fDate" value="${d.date}">
     <button class="btn" id="fSave">Guardar</button>
     ${e ? '<button class="btn danger" id="fDel">Eliminar</button>' : ''}
     <button class="btn ghost" data-a="close">Cancelar</button>`);
   const q = s => $(s, $('#sheet'));
   const sync = () => {
     q('#fCur').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.c === d.currency));
-    q('#fRateBox').style.visibility = d.currency === 'USD' ? 'visible' : 'hidden';
     q('#fCats').innerHTML = catBtns();
   };
   sync();
@@ -472,11 +477,9 @@ function openMov(kind, id, preset = {}) {
     const amount = parseNum(q('#fAmt').value);
     if (!amount || amount <= 0) { toast('Poné un monto válido'); q('#fAmt').focus(); return; }
     if (!d.cat) { toast('Elegí una categoría'); return; }
-    const rate = parseNum(q('#fRate').value) || S.settings.rate;
     const date = q('#fDate').value || today();
-    const rec = { id: e ? e.id : uid(), type: 'mov', kind: d.kind, date, concept: q('#fCon').value.trim(), cat: d.cat, row: cat(d.cat).row || 'Varios', currency: d.currency, amount, rate, synced: false, known: e ? e.known : false };
+    const rec = { id: e ? e.id : uid(), type: 'mov', kind: d.kind, date, concept: q('#fCon').value.trim(), cat: d.cat, row: cat(d.cat).row || 'Varios', currency: d.currency, amount, synced: false, known: e ? e.known : false };
     upsert(rec);
-    if (d.currency === 'USD') S.settings.rate = rate;
     afterSave(date, e ? 'Cambios guardados' : 'Guardado');
   };
   if (e) q('#fDel').onclick = () => removeEntry(e);
@@ -508,7 +511,6 @@ function openFx(id) {
     if (!(usd > 0 && ars > 0)) { toast('Completá los dos montos'); return; }
     const date = q('#xDate').value || today();
     upsert({ id: e ? e.id : uid(), type: 'fx', date, usd, ars, concept: d.concept, synced: false, known: e ? e.known : false });
-    S.settings.rate = ars / usd;
     afterSave(date, 'Conversión guardada');
   };
   if (e) q('#xDel').onclick = () => removeEntry(e);
@@ -545,7 +547,7 @@ async function api(body) {
 }
 const wire = e => e.deleted ? { op: 'delete', type: e.type, id: e.id } :
   e.type === 'fx' ? { op: 'upsert', type: 'fx', id: e.id, date: e.date, usd: e.usd, ars: e.ars, concept: e.concept } :
-  { op: 'upsert', type: 'mov', id: e.id, date: e.date, kind: e.kind, amount: e.amount, currency: e.currency, concept: e.concept, cat: cat(e.cat).name, row: e.row, rate: e.rate, known: !!e.known };
+  { op: 'upsert', type: 'mov', id: e.id, date: e.date, kind: e.kind, amount: e.amount, currency: e.currency, concept: e.concept, cat: cat(e.cat).name, row: e.row, known: !!e.known };
 
 let syncing = false;
 async function sync(manual) {
@@ -585,7 +587,7 @@ async function pullAll() {
       }
       const rec = r.type === 'fx'
         ? { id: r.id, type: 'fx', date: r.date, usd: +r.usd, ars: +r.ars, concept: r.concept, synced: true, known: true }
-        : { id: r.id, type: 'mov', kind: r.kind, date: r.date, concept: r.concept || '', cat: c.id, row: r.row, currency: r.currency, amount: +r.amount, rate: r.rate || S.settings.rate, synced: true, known: true };
+        : { id: r.id, type: 'mov', kind: r.kind, date: r.date, concept: r.concept || '', cat: c.id, row: r.row, currency: r.currency, amount: +r.amount, synced: true, known: true };
       if (!mine) added++;
       upsert(rec);
     });
@@ -676,14 +678,17 @@ document.addEventListener('click', ev => {
   else if (a === 'runway') { ui.showRunway = !ui.showRunway; clearTimeout(runwayTimer); if (ui.showRunway) runwayTimer = setTimeout(hideRunway, 8000); render(); }
   else if (a === 'closing') { ui.y = +b.dataset.y; ui.m = +b.dataset.m; ui.view = 'report'; ui.scope = 'todo'; render(); }
   else if (a === 'theme') { const o = ['auto', 'light', 'dark']; S.settings.theme = o[(o.indexOf(S.settings.theme || 'auto') + 1) % 3]; save(); applyTheme(); render(); }
+  else if (a === 'cur') { ui.cur = b.dataset.v; render(); }
   else if (a === 'scope') { ui.scope = b.dataset.v; render(); }
   else if (a === 'conn') openConn();
   else if (a === 'sync') sync(true);
   else if (a === 'pull') pullAll();
   else if (a === 'cats') openCats();
-  else if (a === 'rate') {
-    const n = parseNum(prompt('Tipo de cambio por defecto (ARS por 1 USD):', numStr(S.settings.rate)));
-    if (n && n > 0) { S.settings.rate = n; save(); render(); toast('Tipo de cambio actualizado'); }
+  else if (a === 'update') {
+    (async () => {
+      try { for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister(); for (const k of await caches.keys()) await caches.delete(k); } catch (e) {}
+      location.reload();
+    })();
   }
   else if (a === 'backup') download(`gastos-backup-${today()}.json`, JSON.stringify(S, null, 2), 'application/json');
 });
@@ -695,7 +700,12 @@ setInterval(applyTheme, 60000);
 applyTheme();
 render();
 sync();
-if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+  // si ya había una versión instalada y llega una nueva, se recarga sola una vez
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController && !window.__recargado) { window.__recargado = true; location.reload(); } });
+}
 </script>
 </body>
 </html>
