@@ -166,7 +166,7 @@ const numStr = n => String(n).replace('.', ',');
 
 /* ---------- datos ---------- */
 const KEY = 'gastos.v2';
-const APP_VERSION = 'v9 · 2 nov 2026';
+const APP_VERSION = 'v10 · 2 nov 2026';
 // row = nombre de la fila del Sheet donde se acumula (Venta USD). Las categorías nuevas van a "Varios".
 const DEFAULT_CATS = [
   { id: 'cenas', name: 'Cenas', emoji: '🍽️', color: '#f08c00', row: 'Varios' },
@@ -399,7 +399,7 @@ function stmtView() {
     <div class="sub" style="margin-top:0">${L.length} consumos${totalP ? ' ·' + delta(total, totalP) + ' vs mes anterior' : ''}${U.length ? ' · ' + money(U.reduce((a, l) => a + l.v, 0), 'USD') + ' en dólares' : ''}</div></div>`;
   if (faltan.length) html += `<div class="banner"><span>Falta cargar: ${faltan.map(esc).join(', ')}</span></div>`;
   html += `<div class="card"><h3>Resúmenes cargados</h3>` + sts.map(x => `<button class="row" data-a="stmtopen" data-id="${esc(x.id)}" style="--c:#1c7ed6;margin-bottom:6px"><div class="dot">💳</div>
-    <div class="mid"><div class="t">${esc(x.card)}</div><div class="s">cierre ${dm(x.cierre)} · vence ${dm(x.vence)}${x.synced ? '' : ' · ⏳'}</div></div><div class="amt">${money(x.totalArs)}</div></button>`).join('') + `</div>`;
+    <div class="mid"><div class="t">${esc(x.card)}</div><div class="s">cierre ${dm(x.cierre)} · vence ${dm(x.vence)}${x.cargado ? ' · cargado ' + dm(x.cargado) : ''}${x.synced ? '' : ' · ⏳'}</div></div><div class="amt">${money(x.totalArs)}</div></button>`).join('') + `</div>`;
   const by = {}, byP = {};
   L.forEach(l => { by[l.c] = (by[l.c] || 0) + l.v; }); P.forEach(l => { byP[l.c] = (byP[l.c] || 0) + l.v; });
   html += `<div class="card"><h3>Por categoría</h3>` + Object.keys(by).sort((a, b) => by[b] - by[a]).map(c => {
@@ -600,7 +600,7 @@ async function api(body) {
   return j;
 }
 const wire = e => e.deleted ? { op: 'delete', type: e.type, id: e.id } :
-  e.type === 'stmt' ? { op: 'upsert', type: 'stmt', id: e.id, card: e.card, cierre: e.cierre, vence: e.vence, mes: e.mes, titular: e.titular, totalArs: e.totalArs, totalUsd: e.totalUsd, lines: e.lines, known: !!e.known } :
+  e.type === 'stmt' ? { op: 'upsert', type: 'stmt', id: e.id, card: e.card, cierre: e.cierre, vence: e.vence, mes: e.mes, titular: e.titular, cargado: e.cargado, totalArs: e.totalArs, totalUsd: e.totalUsd, lines: e.lines, known: !!e.known } :
   e.type === 'fx' ? { op: 'upsert', type: 'fx', id: e.id, date: e.date, usd: e.usd, ars: e.ars, concept: e.concept } :
   { op: 'upsert', type: 'mov', id: e.id, date: e.date, kind: e.kind, amount: e.amount, currency: e.currency, concept: e.concept, cat: cat(e.cat).name, row: e.row, known: !!e.known };
 
@@ -682,7 +682,7 @@ function openStmtImport() {
   };
 }
 function stmtPreview(pack) {
-  if (!pack.mes) { const d = new Date(pack.cierre + 'T12:00:00'); d.setDate(d.getDate() - 15); pack.mes = monthKey(d.getFullYear(), d.getMonth()); }
+  if (!pack.mes) pack.mes = monthKey(new Date().getFullYear(), new Date().getMonth());   // por defecto: el mes en que lo cargás
   pack.id = pack.id || `${pack.card}-${pack.cierre}`;
   const sumArs = Math.round(pack.lines.filter(l => l.m === 'ARS').reduce((a, l) => a + l.v, 0) * 100) / 100;
   const sumUsd = Math.round(pack.lines.filter(l => l.m === 'USD').reduce((a, l) => a + l.v, 0) * 100) / 100;
@@ -694,10 +694,12 @@ function stmtPreview(pack) {
   const sorted = pack.lines.map((l, i) => ({ l, i })).sort((a, b) => a.l.d.localeCompare(b.l.d));
   openSheet(`<h2>Revisar resumen</h2>
     <div class="card" style="box-shadow:none"><b>${esc(pack.card)}</b> · cierre ${dm(pack.cierre)} · vence ${dm(pack.vence || pack.cierre)}<br>
-      <span class="sub" style="margin:0">Se cuenta como consumo de <b>${monthName(yy, mm - 1)}</b> · ${pack.lines.length} consumos</span><br>
+      <span class="sub" style="margin:0">${pack.lines.length} consumos · se carga hoy, ${dm(today())}</span><br>
       <b>${money(sumArs)}</b>${sumUsd ? ' + ' + money(sumUsd, 'USD') : ''}
       <div class="hint" style="color:${ok ? 'var(--good)' : 'var(--danger)'}">${ok ? '✓ Coincide con el total del resumen' : '⚠️ No coincide con el total del resumen (' + money(pack.totalArs) + ')'}</div>
       ${dup ? '<div class="hint" style="color:var(--mute)">Ya estaba cargado: se va a reemplazar.</div>' : ''}</div>
+    <label class="f">Mes de la planilla donde se guarda</label>
+    <select class="in" id="sMes">${[-2, -1, 0, 1].map(k => { const d = new Date(new Date().getFullYear(), new Date().getMonth() + k, 1), v = monthKey(d.getFullYear(), d.getMonth()); return `<option value="${v}" ${v === pack.mes ? 'selected' : ''}>${monthName(d.getFullYear(), d.getMonth())}${k === 0 ? ' (mes actual)' : ''}</option>`; }).join('')}</select>
     <p class="note">Corregí la categoría de lo que no coincida (podés escribir una nueva).</p>
     <datalist id="stmtCats">${stmtCats().map(c => `<option value="${esc(c)}">`).join('')}</datalist>
     <div id="sList">` + sorted.map(({ l, i }) => `<div class="srow"><div class="top"><span>${dm(l.d)} · ${esc(l.n)}${l.q ? ` · cuota ${l.q[0]}/${l.q[1]}` : ''}</span><b>${money(l.v, l.m)}</b></div>
@@ -705,18 +707,20 @@ function stmtPreview(pack) {
     <button class="btn" id="sSave">Guardar resumen</button><button class="btn ghost" data-a="stmt">Volver</button>`);
   $('#sSave').onclick = () => {
     document.querySelectorAll('#sList input[data-i]').forEach(inp => { pack.lines[+inp.dataset.i].c = inp.value.trim() || 'Otros'; });
+    pack.mes = $('#sMes').value || pack.mes;
+    const [y2, m2] = pack.mes.split('-').map(Number);
     const prevS = S.statements.find(x => x.id === pack.id);
-    const rec = { id: pack.id, type: 'stmt', card: pack.card, cierre: pack.cierre, vence: pack.vence || pack.cierre, mes: pack.mes, titular: pack.titular || '', totalArs: pack.totalArs, totalUsd: pack.totalUsd, lines: pack.lines, synced: false, known: prevS ? prevS.known : false };
+    const rec = { id: pack.id, type: 'stmt', card: pack.card, cierre: pack.cierre, vence: pack.vence || pack.cierre, mes: pack.mes, cargado: today(), titular: pack.titular || '', totalArs: pack.totalArs, totalUsd: pack.totalUsd, lines: pack.lines, synced: false, known: prevS ? prevS.known : false };
     const k = S.statements.findIndex(x => x.id === pack.id);
     if (k >= 0) S.statements[k] = rec; else S.statements.push(rec);
-    ui.y = yy; ui.m = mm - 1; ui.view = 'report'; ui.cur = 'TARJ';
+    ui.y = y2; ui.m = m2 - 1; ui.view = 'report'; ui.cur = 'TARJ';
     save(); closeSheet(); render(); toast('Resumen guardado'); sync();
   };
 }
 function openStmtDetail(id) {
   const x = S.statements.find(v => v.id === id); if (!x) return;
   const lines = [...x.lines].sort((a, b) => a.d.localeCompare(b.d));
-  openSheet(`<h2>${esc(x.card)}</h2><p class="note">Cierre ${dm(x.cierre)} · vence ${dm(x.vence)} · ${money(x.totalArs)}${x.totalUsd ? ' + ' + money(x.totalUsd, 'USD') : ''}</p>` +
+  openSheet(`<h2>${esc(x.card)}</h2><p class="note">Cierre ${dm(x.cierre)} · vence ${dm(x.vence)}${x.cargado ? ' · cargado ' + dm(x.cargado) : ''} · ${money(x.totalArs)}${x.totalUsd ? ' + ' + money(x.totalUsd, 'USD') : ''}</p>` +
     lines.map(l => `<div class="srow"><div class="top"><span>${dm(l.d)} · ${esc(l.n)}${l.q ? ` · cuota ${l.q[0]}/${l.q[1]}` : ''}</span><b>${money(l.v, l.m)}</b></div><div class="sub" style="margin:0">${esc(l.c)}</div></div>`).join('') +
     `<button class="btn danger" data-a="stmtdel" data-id="${esc(id)}">Eliminar resumen</button><button class="btn ghost" data-a="close">Cerrar</button>`);
 }
