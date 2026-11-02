@@ -115,6 +115,9 @@ input.amount { font-size: 34px; font-weight: 700; padding: 10px 14px; }
 .catedit .l1 input:first-child { width: 56px; text-align: center; }
 .catedit .l2 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
 .catedit small { color: var(--mute); font-size: 11px; display: block; margin-bottom: 2px; }
+.srow { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.srow .top { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; margin-bottom: 4px; }
+.srow input.in { padding: 6px 10px; font-size: 14px; }
 #toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 90px); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-size: 14px; z-index: 30; opacity: 0; pointer-events: none; transition: opacity .2s; max-width: 90%; text-align: center; }
 #toast.show { opacity: 1; }
 </style>
@@ -163,7 +166,7 @@ const numStr = n => String(n).replace('.', ',');
 
 /* ---------- datos ---------- */
 const KEY = 'gastos.v2';
-const APP_VERSION = 'v8 · 1 nov 2026';
+const APP_VERSION = 'v9 · 2 nov 2026';
 // row = nombre de la fila del Sheet donde se acumula (Venta USD). Las categorías nuevas van a "Varios".
 const DEFAULT_CATS = [
   { id: 'cenas', name: 'Cenas', emoji: '🍽️', color: '#f08c00', row: 'Varios' },
@@ -203,6 +206,7 @@ function load() {
   try {
     const j = JSON.parse(localStorage.getItem(KEY));
     if (j && j.entries) {
+      if (!j.statements) j.statements = [];
       // Se quitan las categorías que se pagan con tarjeta (solo si no tienen movimientos)
       if (j.settings && !j.settings.cleanup1) {
         const quitar = ['super', 'transporte', 'salud', 'subs'];
@@ -217,7 +221,7 @@ function load() {
       return j;
     }
   } catch (e) {}
-  return { entries: [], categories: DEFAULT_CATS, settings: { url: '', token: '', rate: 1600, runway: null, runwayText: '', lastSync: null, theme: 'auto' } };
+  return { entries: [], statements: [], categories: DEFAULT_CATS, settings: { url: '', token: '', rate: 1600, runway: null, runwayText: '', lastSync: null, theme: 'auto' } };
 }
 let S = load();
 let storageOk = true;
@@ -227,6 +231,7 @@ function save() {
 }
 const cat = id => S.categories.find(c => c.id === id) || S.categories.find(c => c.id === 'otros') || S.categories[0];
 const live = () => S.entries.filter(e => !e.deleted);
+const allItems = () => [...S.entries, ...S.statements];
 const movs = () => live().filter(e => e.type === 'mov');
 
 function history() {
@@ -290,8 +295,8 @@ function render() {
 
 function syncBanner() {
   if (!S.settings.url) return `<div class="banner"><span>Falta conectar el Sheet</span><button class="pill" data-a="conn">Configurar</button></div>`;
-  const pend = S.entries.filter(e => !e.synced).length;
-  const errs = S.entries.filter(e => e.err).length;
+  const pend = allItems().filter(e => !e.synced).length;
+  const errs = allItems().filter(e => e.err).length;
   if (errs) return `<div class="banner"><span>⚠️ ${errs} movimiento${errs > 1 ? 's' : ''} con error</span><button class="pill" data-a="sync">Reintentar</button></div>`;
   if (pend) return `<div class="banner"><span>⏳ ${pend} sin enviar al Sheet</span><button class="pill" data-a="sync">Enviar</button></div>`;
   return '';
@@ -370,13 +375,56 @@ function listView() {
   return html;
 }
 
+const curPills = () => `<div style="display:flex;gap:6px;margin-bottom:12px"><button class="pill ${ui.cur === 'ARS' ? 'on' : ''}" data-a="cur" data-v="ARS">Pesos</button><button class="pill ${ui.cur === 'USD' ? 'on' : ''}" data-a="cur" data-v="USD">Dólares</button><button class="pill ${ui.cur === 'TARJ' ? 'on' : ''}" data-a="cur" data-v="TARJ">Tarjetas</button></div>`;
+const dm = d => String(d).slice(8) + '/' + String(d).slice(5, 7);
+const STMT_PAL = ['#f08c00', '#1c7ed6', '#e03131', '#7048e8', '#0c8599', '#d6336c', '#2f9e44', '#5c7cfa', '#e8590c', '#868e96', '#9775fa', '#20c997'];
+const stmtColor = n => STMT_PAL[[...String(n)].reduce((a, c) => a + c.charCodeAt(0), 0) % STMT_PAL.length];
+
+function stmtView() {
+  const key = monthKey(ui.y, ui.m);
+  const pd = new Date(ui.y, ui.m - 1, 1), pkey = monthKey(pd.getFullYear(), pd.getMonth());
+  const sts = S.statements.filter(x => !x.deleted && x.mes === key);
+  const prev = S.statements.filter(x => !x.deleted && x.mes === pkey);
+  const flat = list => list.flatMap(x => x.lines.map(l => ({ ...l, card: x.card })));
+  const L = flat(sts).filter(l => l.m === 'ARS'), U = flat(sts).filter(l => l.m === 'USD'), P = flat(prev).filter(l => l.m === 'ARS');
+  const total = L.reduce((a, l) => a + l.v, 0), totalP = P.reduce((a, l) => a + l.v, 0);
+  const faltan = ['Tarjeta VISA', 'Tarjeta MC', 'Tarjeta AMEX'].filter(c => !sts.some(x => x.card === c));
+  const delta = (a, b) => b ? ` <span style="color:${a > b ? 'var(--danger)' : 'var(--good)'}">${a > b ? '▲' : '▼'} ${Math.abs(Math.round((a - b) / b * 100))}%</span>` : '';
+  let html = `<div class="card">${curPills()}`;
+  if (!sts.length) {
+    return html + `<div class="empty" style="padding:24px 8px"><b>💳</b>Todavía no cargaste resúmenes de ${monthName(ui.y, ui.m)}.</div><button class="btn" data-a="stmt">Importar resumen de tarjeta</button></div>`;
+  }
+  html += `<div class="sub" style="margin:0">Consumo con tarjeta (según los resúmenes)</div>
+    <div style="font-size:34px;font-weight:700;letter-spacing:-.02em;margin-top:6px">${money(total)}</div>
+    <div class="sub" style="margin-top:0">${L.length} consumos${totalP ? ' ·' + delta(total, totalP) + ' vs mes anterior' : ''}${U.length ? ' · ' + money(U.reduce((a, l) => a + l.v, 0), 'USD') + ' en dólares' : ''}</div></div>`;
+  if (faltan.length) html += `<div class="banner"><span>Falta cargar: ${faltan.map(esc).join(', ')}</span></div>`;
+  html += `<div class="card"><h3>Resúmenes cargados</h3>` + sts.map(x => `<button class="row" data-a="stmtopen" data-id="${esc(x.id)}" style="--c:#1c7ed6;margin-bottom:6px"><div class="dot">💳</div>
+    <div class="mid"><div class="t">${esc(x.card)}</div><div class="s">cierre ${dm(x.cierre)} · vence ${dm(x.vence)}${x.synced ? '' : ' · ⏳'}</div></div><div class="amt">${money(x.totalArs)}</div></button>`).join('') + `</div>`;
+  const by = {}, byP = {};
+  L.forEach(l => { by[l.c] = (by[l.c] || 0) + l.v; }); P.forEach(l => { byP[l.c] = (byP[l.c] || 0) + l.v; });
+  html += `<div class="card"><h3>Por categoría</h3>` + Object.keys(by).sort((a, b) => by[b] - by[a]).map(c => {
+    const p = total ? by[c] / total * 100 : 0;
+    return `<div class="bar" style="--c:${stmtColor(c)}"><div class="top"><span>${esc(c)}</span><b>${money(by[c])} <span style="color:var(--mute);font-weight:400">${p.toFixed(0)}%</span>${delta(by[c], byP[c] || 0)}</b></div><div class="track"><div class="fill" style="width:${p}%"></div></div></div>`;
+  }).join('') + `</div>`;
+  const com = {}, prevCom = {};
+  L.forEach(l => { const o = com[l.n] = com[l.n] || { v: 0, n: 0 }; o.v += l.v; o.n++; }); P.forEach(l => { prevCom[l.n] = 1; });
+  html += `<div class="card"><h3>Comercios que más pesan</h3>` + Object.keys(com).sort((a, b) => com[b].v - com[a].v).slice(0, 10).map(n =>
+    `<div class="lrow"><span>${esc(n)} <span style="color:var(--mute)">×${com[n].n}${prevCom[n] ? ' · se repite' : ''}</span></span><b>${money(com[n].v)}</b></div>`).join('') + `</div>`;
+  const cu = {};
+  L.filter(l => l.q).forEach(l => { for (let j = 1; j <= l.q[1] - l.q[0]; j++) cu[j] = (cu[j] || 0) + l.v; });
+  const cj = Object.keys(cu);
+  if (cj.length) html += `<div class="card"><h3>Cuotas ya comprometidas</h3>` + cj.map(j => `<div class="lrow"><span>En ${j} ${+j > 1 ? 'resúmenes' : 'resumen'}</span><b>${money(cu[j])}</b></div>`).join('') + `</div>`;
+  return html + `<button class="btn ghost" data-a="stmt">Importar otro resumen</button>`;
+}
+
 function reportView() {
+  if (ui.cur === 'TARJ') return stmtView();
   const inScope = e => e.type === 'mov' && e.kind === 'gasto' && e.currency === ui.cur && !cat(e.cat).card && (ui.scope === 'todo' || cat(e.cat).row === 'Varios');
   const items = monthEntries(ui.y, ui.m).filter(inScope);
   const total = items.reduce((s, e) => s + e.amount, 0);
   const M = n => money(n, ui.cur);
   const monedaTxt = ui.cur === 'USD' ? 'dólares' : 'pesos';
-  let html = `<div class="card"><div style="display:flex;gap:6px;margin-bottom:12px"><button class="pill ${ui.cur === 'ARS' ? 'on' : ''}" data-a="cur" data-v="ARS">Pesos</button><button class="pill ${ui.cur === 'USD' ? 'on' : ''}" data-a="cur" data-v="USD">Dólares</button></div>
+  let html = `<div class="card">${curPills()}
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
     <div class="sub" style="margin:0">Gastos en ${monedaTxt} (sin pagos de tarjeta)</div>
     <div style="display:flex;gap:6px"><button class="pill ${ui.scope === 'todo' ? 'on' : ''}" data-a="scope" data-v="todo">Todo</button>
@@ -409,7 +457,7 @@ function reportView() {
 
 function moreView() {
   const s = S.settings;
-  const pend = S.entries.filter(e => !e.synced).length;
+  const pend = allItems().filter(e => !e.synced).length;
   return `
   <button class="menu" data-a="conn"><span class="e">🔗</span><span>Conexión con el Sheet<small>${s.url ? (pend ? `${pend} pendiente${pend > 1 ? 's' : ''} de enviar` : 'Conectado') + (s.lastSync ? ' · última sync ' + new Date(s.lastSync).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) : '') : 'Sin configurar'}</small></span></button>
   <button class="menu" data-a="sync"><span class="e">↻</span><span>Sincronizar ahora<small>Envía lo pendiente y actualiza los ahorros</small></span></button>
@@ -417,6 +465,7 @@ function moreView() {
   <button class="menu" data-a="cats"><span class="e">🏷️</span><span>Categorías y atajos<small>Agregar categorías, fila del Sheet y monto fijo</small></span></button>
   <button class="menu" data-a="theme"><span class="e">🌗</span><span>Apariencia<small>${THEME_LABEL[s.theme || 'auto']}</small></span></button>
   <button class="menu" data-a="update"><span class="e">🔄</span><span>Buscar actualización<small>Versión de la app: ${APP_VERSION}</small></span></button>
+  <button class="menu" data-a="stmt"><span class="e">💳</span><span>Importar resumen de tarjeta<small>Cargar los consumos de VISA, MC o AMEX</small></span></button>
   <button class="menu" data-a="backup"><span class="e">💾</span><span>Copia local (JSON)<small>El respaldo principal es tu Sheet</small></span></button>
   <p class="note">Tu Google Sheet es la base de datos: cada gasto se suma en su fila del mes y el detalle queda en una nota de esa fila. Lo que cargues sin señal se guarda y se envía solo cuando vuelva la conexión. ${storageOk ? '' : '<b>⚠️ El guardado local está bloqueado.</b>'}</p>`;
 }
@@ -551,6 +600,7 @@ async function api(body) {
   return j;
 }
 const wire = e => e.deleted ? { op: 'delete', type: e.type, id: e.id } :
+  e.type === 'stmt' ? { op: 'upsert', type: 'stmt', id: e.id, card: e.card, cierre: e.cierre, vence: e.vence, mes: e.mes, titular: e.titular, totalArs: e.totalArs, totalUsd: e.totalUsd, lines: e.lines, known: !!e.known } :
   e.type === 'fx' ? { op: 'upsert', type: 'fx', id: e.id, date: e.date, usd: e.usd, ars: e.ars, concept: e.concept } :
   { op: 'upsert', type: 'mov', id: e.id, date: e.date, kind: e.kind, amount: e.amount, currency: e.currency, concept: e.concept, cat: cat(e.cat).name, row: e.row, known: !!e.known };
 
@@ -559,7 +609,7 @@ async function sync(manual) {
   if (syncing || !S.settings.url) return;
   syncing = true;
   try {
-    const pend = S.entries.filter(e => !e.synced);
+    const pend = allItems().filter(e => !e.synced);
     const j = await api({ action: 'push', entries: pend.map(wire) });
     const byId = Object.fromEntries(j.results.map(r => [r.id, r]));
     pend.forEach(e => {
@@ -568,11 +618,12 @@ async function sync(manual) {
       if (r.ok) { e.synced = true; e.known = true; e.err = null; } else e.err = r.error;
     });
     S.entries = S.entries.filter(e => !(e.deleted && e.synced));
+    S.statements = S.statements.filter(e => !(e.deleted && e.synced));
     applyStatus(j.status);
     S.settings.lastSync = Date.now();
     save(); render();
-    const bad = S.entries.filter(e => e.err).length;
-    if (manual || bad) toast(bad ? `⚠️ ${bad} con error: ${S.entries.find(e => e.err).err}` : '✓ Sincronizado');
+    const bad = allItems().filter(e => e.err).length;
+    if (manual || bad) toast(bad ? `⚠️ ${bad} con error: ${allItems().find(e => e.err).err}` : '✓ Sincronizado');
   } catch (err) {
     if (manual) toast('Sin conexión con el Sheet: ' + err.message);
   } finally { syncing = false; }
@@ -583,6 +634,15 @@ async function pullAll() {
     const j = await api({ action: 'pull' });
     let added = 0;
     j.entries.forEach(r => {
+      if (r.type === 'stmt') {
+        const mineS = S.statements.find(x => x.id === r.id);
+        if (mineS && !mineS.synced) return;
+        if (!mineS) added++;
+        const rec = { ...r, synced: true, known: true };
+        const i = S.statements.findIndex(x => x.id === r.id);
+        if (i >= 0) S.statements[i] = rec; else S.statements.push(rec);
+        return;
+      }
       const mine = S.entries.find(e => e.id === r.id);
       if (mine && !mine.synced) return; // lo local pendiente gana
       let c = S.categories.find(x => x.name.toLowerCase() === String(r.cat || '').toLowerCase());
@@ -600,6 +660,70 @@ async function pullAll() {
     S.settings.lastSync = Date.now();
     save(); render(); toast(`Traídos del Sheet: ${added} nuevos`);
   } catch (err) { toast('No pude traer los datos: ' + err.message); }
+}
+
+/* ---------- resúmenes de tarjeta ---------- */
+function stmtCats() {
+  const base = ['Supermercado', 'Delivery', 'Combustible', 'Salud', 'Suscripciones', 'Salidas', 'Ocio', 'Deporte', 'Compras', 'Seguros', 'Hogar', 'Transporte', 'Servicios', 'Otros'];
+  return [...new Set([...base, ...S.statements.flatMap(x => x.lines.map(l => l.c))])];
+}
+function openStmtImport() {
+  openSheet(`<h2>Importar resumen de tarjeta</h2>
+    <p class="note">Elegí el archivo .json que te prepara Claude, o pegá su contenido.</p>
+    <input type="file" id="sFile" accept=".json,application/json,text/plain" class="in">
+    <label class="f">…o pegá el texto</label><textarea class="in" id="sText" rows="5" placeholder='{"card":"Tarjeta AMEX", …}'></textarea>
+    <button class="btn" id="sGo">Revisar</button><button class="btn ghost" data-a="close">Cancelar</button>`);
+  $('#sFile').onchange = async ev => { const f = ev.target.files[0]; if (f) $('#sText').value = await f.text(); };
+  $('#sGo').onclick = () => {
+    let pack;
+    try { pack = JSON.parse($('#sText').value); } catch (e) { return toast('El texto no es un resumen válido'); }
+    if (!pack || !/^tarjeta/i.test(pack.card || '') || !Array.isArray(pack.lines) || !pack.lines.length) return toast('Falta la tarjeta o los consumos');
+    stmtPreview(pack);
+  };
+}
+function stmtPreview(pack) {
+  if (!pack.mes) { const d = new Date(pack.cierre + 'T12:00:00'); d.setDate(d.getDate() - 15); pack.mes = monthKey(d.getFullYear(), d.getMonth()); }
+  pack.id = pack.id || `${pack.card}-${pack.cierre}`;
+  const sumArs = Math.round(pack.lines.filter(l => l.m === 'ARS').reduce((a, l) => a + l.v, 0) * 100) / 100;
+  const sumUsd = Math.round(pack.lines.filter(l => l.m === 'USD').reduce((a, l) => a + l.v, 0) * 100) / 100;
+  if (pack.totalArs == null) pack.totalArs = sumArs;
+  if (pack.totalUsd == null) pack.totalUsd = sumUsd;
+  const ok = Math.abs(sumArs - pack.totalArs) < 0.01 && Math.abs(sumUsd - pack.totalUsd) < 0.01;
+  const [yy, mm] = pack.mes.split('-').map(Number);
+  const dup = S.statements.some(x => x.id === pack.id && !x.deleted);
+  const sorted = pack.lines.map((l, i) => ({ l, i })).sort((a, b) => a.l.d.localeCompare(b.l.d));
+  openSheet(`<h2>Revisar resumen</h2>
+    <div class="card" style="box-shadow:none"><b>${esc(pack.card)}</b> · cierre ${dm(pack.cierre)} · vence ${dm(pack.vence || pack.cierre)}<br>
+      <span class="sub" style="margin:0">Se cuenta como consumo de <b>${monthName(yy, mm - 1)}</b> · ${pack.lines.length} consumos</span><br>
+      <b>${money(sumArs)}</b>${sumUsd ? ' + ' + money(sumUsd, 'USD') : ''}
+      <div class="hint" style="color:${ok ? 'var(--good)' : 'var(--danger)'}">${ok ? '✓ Coincide con el total del resumen' : '⚠️ No coincide con el total del resumen (' + money(pack.totalArs) + ')'}</div>
+      ${dup ? '<div class="hint" style="color:var(--mute)">Ya estaba cargado: se va a reemplazar.</div>' : ''}</div>
+    <p class="note">Corregí la categoría de lo que no coincida (podés escribir una nueva).</p>
+    <datalist id="stmtCats">${stmtCats().map(c => `<option value="${esc(c)}">`).join('')}</datalist>
+    <div id="sList">` + sorted.map(({ l, i }) => `<div class="srow"><div class="top"><span>${dm(l.d)} · ${esc(l.n)}${l.q ? ` · cuota ${l.q[0]}/${l.q[1]}` : ''}</span><b>${money(l.v, l.m)}</b></div>
+      <input class="in" list="stmtCats" data-i="${i}" value="${esc(l.c)}"></div>`).join('') + `</div>
+    <button class="btn" id="sSave">Guardar resumen</button><button class="btn ghost" data-a="stmt">Volver</button>`);
+  $('#sSave').onclick = () => {
+    document.querySelectorAll('#sList input[data-i]').forEach(inp => { pack.lines[+inp.dataset.i].c = inp.value.trim() || 'Otros'; });
+    const prevS = S.statements.find(x => x.id === pack.id);
+    const rec = { id: pack.id, type: 'stmt', card: pack.card, cierre: pack.cierre, vence: pack.vence || pack.cierre, mes: pack.mes, titular: pack.titular || '', totalArs: pack.totalArs, totalUsd: pack.totalUsd, lines: pack.lines, synced: false, known: prevS ? prevS.known : false };
+    const k = S.statements.findIndex(x => x.id === pack.id);
+    if (k >= 0) S.statements[k] = rec; else S.statements.push(rec);
+    ui.y = yy; ui.m = mm - 1; ui.view = 'report'; ui.cur = 'TARJ';
+    save(); closeSheet(); render(); toast('Resumen guardado'); sync();
+  };
+}
+function openStmtDetail(id) {
+  const x = S.statements.find(v => v.id === id); if (!x) return;
+  const lines = [...x.lines].sort((a, b) => a.d.localeCompare(b.d));
+  openSheet(`<h2>${esc(x.card)}</h2><p class="note">Cierre ${dm(x.cierre)} · vence ${dm(x.vence)} · ${money(x.totalArs)}${x.totalUsd ? ' + ' + money(x.totalUsd, 'USD') : ''}</p>` +
+    lines.map(l => `<div class="srow"><div class="top"><span>${dm(l.d)} · ${esc(l.n)}${l.q ? ` · cuota ${l.q[0]}/${l.q[1]}` : ''}</span><b>${money(l.v, l.m)}</b></div><div class="sub" style="margin:0">${esc(l.c)}</div></div>`).join('') +
+    `<button class="btn danger" data-a="stmtdel" data-id="${esc(id)}">Eliminar resumen</button><button class="btn ghost" data-a="close">Cerrar</button>`);
+}
+function deleteStmt(id) {
+  const x = S.statements.find(v => v.id === id); if (!x || !confirm('¿Eliminar este resumen?')) return;
+  if (x.known) { x.deleted = true; x.synced = false; x.err = null; } else S.statements = S.statements.filter(v => v.id !== id);
+  save(); closeSheet(); render(); toast('Resumen eliminado'); sync();
 }
 
 /* ---------- configuración ---------- */
@@ -684,6 +808,9 @@ document.addEventListener('click', ev => {
   else if (a === 'closing') { ui.y = +b.dataset.y; ui.m = +b.dataset.m; ui.view = 'report'; ui.scope = 'todo'; render(); }
   else if (a === 'theme') { const o = ['auto', 'light', 'dark']; S.settings.theme = o[(o.indexOf(S.settings.theme || 'auto') + 1) % 3]; save(); applyTheme(); render(); }
   else if (a === 'cur') { ui.cur = b.dataset.v; render(); }
+  else if (a === 'stmt') openStmtImport();
+  else if (a === 'stmtopen') openStmtDetail(b.dataset.id);
+  else if (a === 'stmtdel') deleteStmt(b.dataset.id);
   else if (a === 'scope') { ui.scope = b.dataset.v; render(); }
   else if (a === 'conn') openConn();
   else if (a === 'sync') sync(true);

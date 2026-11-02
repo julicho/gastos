@@ -1,6 +1,6 @@
 // Cachea la app para que abra sin señal. Las llamadas al Sheet no pasan por acá (son de otro origen).
 // Estrategia: primero la red (así una versión nueva se ve al abrir), y la copia guardada solo si no hay señal.
-const V = 'gastos-v8';
+const V = 'gastos-v9';
 const ASSETS = ['./', 'index.html', 'manifest.webmanifest', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
