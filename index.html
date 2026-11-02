@@ -166,7 +166,7 @@ const numStr = n => String(n).replace('.', ',');
 
 /* ---------- datos ---------- */
 const KEY = 'gastos.v2';
-const APP_VERSION = 'v10 · 2 nov 2026';
+const APP_VERSION = 'v12 · 2 nov 2026';
 // row = nombre de la fila del Sheet donde se acumula (Venta USD). Las categorías nuevas van a "Varios".
 const DEFAULT_CATS = [
   { id: 'cenas', name: 'Cenas', emoji: '🍽️', color: '#f08c00', row: 'Varios' },
@@ -682,7 +682,7 @@ function openStmtImport() {
   };
 }
 function stmtPreview(pack) {
-  if (!pack.mes) pack.mes = monthKey(new Date().getFullYear(), new Date().getMonth());   // por defecto: el mes en que lo cargás
+  pack.mes = monthKey(new Date().getFullYear(), new Date().getMonth());   // siempre el mes en que lo cargás (se puede cambiar abajo); se ignora el mes que traiga el archivo
   pack.id = pack.id || `${pack.card}-${pack.cierre}`;
   const sumArs = Math.round(pack.lines.filter(l => l.m === 'ARS').reduce((a, l) => a + l.v, 0) * 100) / 100;
   const sumUsd = Math.round(pack.lines.filter(l => l.m === 'USD').reduce((a, l) => a + l.v, 0) * 100) / 100;
@@ -692,6 +692,11 @@ function stmtPreview(pack) {
   const [yy, mm] = pack.mes.split('-').map(Number);
   const dup = S.statements.some(x => x.id === pack.id && !x.deleted);
   const sorted = pack.lines.map((l, i) => ({ l, i })).sort((a, b) => a.l.d.localeCompare(b.l.d));
+  // el pago de la tarjeta se carga con un id fijo derivado del resumen: reimportar lo actualiza, no lo duplica
+  const payCat = S.categories.find(c => c.name === pack.card);
+  const slug = String(pack.id).replace(/[^A-Za-z0-9]/g, '_');
+  const pagoId = 'pago_' + slug, pagoUsdId = 'pagousd_' + slug;
+  const pagoPrev = S.entries.find(e => e.id === pagoId && !e.deleted);
   openSheet(`<h2>Revisar resumen</h2>
     <div class="card" style="box-shadow:none"><b>${esc(pack.card)}</b> · cierre ${dm(pack.cierre)} · vence ${dm(pack.vence || pack.cierre)}<br>
       <span class="sub" style="margin:0">${pack.lines.length} consumos · se carga hoy, ${dm(today())}</span><br>
@@ -700,6 +705,11 @@ function stmtPreview(pack) {
       ${dup ? '<div class="hint" style="color:var(--mute)">Ya estaba cargado: se va a reemplazar.</div>' : ''}</div>
     <label class="f">Mes de la planilla donde se guarda</label>
     <select class="in" id="sMes">${[-2, -1, 0, 1].map(k => { const d = new Date(new Date().getFullYear(), new Date().getMonth() + k, 1), v = monthKey(d.getFullYear(), d.getMonth()); return `<option value="${v}" ${v === pack.mes ? 'selected' : ''}>${monthName(d.getFullYear(), d.getMonth())}${k === 0 ? ' (mes actual)' : ''}</option>`; }).join('')}</select>
+    ${payCat ? `<div class="card" style="box-shadow:none;margin-top:12px"><label style="display:flex;gap:8px;align-items:center;font-weight:600"><input type="checkbox" id="sPago" checked> Cargar también el pago de ${esc(pack.card)}</label>
+      <div class="two"><div><label class="f">Monto que pagás</label><input class="in" id="sPagoMonto" inputmode="decimal" value="${numStr(pagoPrev ? pagoPrev.amount : pack.totalArs)}"></div>
+      <div><label class="f">Fecha del pago</label><input class="in" type="date" id="sPagoFecha" value="${pagoPrev ? pagoPrev.date : today()}"></div></div>
+      ${sumUsd ? `<label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:14px"><input type="checkbox" id="sPagoUsd" ${S.entries.some(e => e.id === pagoUsdId && !e.deleted) ? 'checked' : ''}> También el pago de ${money(sumUsd, 'USD')} en dólares</label>` : ''}
+      ${pagoPrev ? '<div class="hint" style="color:var(--mute)">Ya había un pago cargado: se actualiza, no se duplica.</div>' : ''}</div>` : ''}
     <p class="note">Corregí la categoría de lo que no coincida (podés escribir una nueva).</p>
     <datalist id="stmtCats">${stmtCats().map(c => `<option value="${esc(c)}">`).join('')}</datalist>
     <div id="sList">` + sorted.map(({ l, i }) => `<div class="srow"><div class="top"><span>${dm(l.d)} · ${esc(l.n)}${l.q ? ` · cuota ${l.q[0]}/${l.q[1]}` : ''}</span><b>${money(l.v, l.m)}</b></div>
@@ -708,13 +718,24 @@ function stmtPreview(pack) {
   $('#sSave').onclick = () => {
     document.querySelectorAll('#sList input[data-i]').forEach(inp => { pack.lines[+inp.dataset.i].c = inp.value.trim() || 'Otros'; });
     pack.mes = $('#sMes').value || pack.mes;
+    let pagos = 0;
+    if (payCat && $('#sPago') && $('#sPago').checked) {
+      const monto = parseNum($('#sPagoMonto').value), fecha = $('#sPagoFecha').value || today();
+      const mkPago = (id, cur, amount) => {
+        const old = S.entries.find(e => e.id === id && !e.deleted);
+        upsert({ id, type: 'mov', kind: 'gasto', date: fecha, concept: 'Pago resumen ' + pack.card.replace(/^Tarjeta /i, ''), cat: payCat.id, row: payCat.row || payCat.name, currency: cur, amount, synced: false, known: old ? old.known : false });
+        pagos++;
+      };
+      if (monto > 0) mkPago(pagoId, 'ARS', monto);
+      if ($('#sPagoUsd') && $('#sPagoUsd').checked && sumUsd > 0) mkPago(pagoUsdId, 'USD', sumUsd);
+    }
     const [y2, m2] = pack.mes.split('-').map(Number);
     const prevS = S.statements.find(x => x.id === pack.id);
     const rec = { id: pack.id, type: 'stmt', card: pack.card, cierre: pack.cierre, vence: pack.vence || pack.cierre, mes: pack.mes, cargado: today(), titular: pack.titular || '', totalArs: pack.totalArs, totalUsd: pack.totalUsd, lines: pack.lines, synced: false, known: prevS ? prevS.known : false };
     const k = S.statements.findIndex(x => x.id === pack.id);
     if (k >= 0) S.statements[k] = rec; else S.statements.push(rec);
     ui.y = y2; ui.m = m2 - 1; ui.view = 'report'; ui.cur = 'TARJ';
-    save(); closeSheet(); render(); toast('Resumen guardado'); sync();
+    save(); closeSheet(); render(); toast(pagos ? 'Resumen y pago guardados' : 'Resumen guardado'); sync();
   };
 }
 function openStmtDetail(id) {
