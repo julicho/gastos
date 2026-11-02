@@ -1,11 +1,13 @@
 // Cachea la app para que abra sin señal. Las llamadas al Sheet no pasan por acá (son de otro origen).
 // Estrategia: primero la red (así una versión nueva se ve al abrir), y la copia guardada solo si no hay señal.
-const V = 'gastos-v13';
+const V = 'gastos-v14';
+const LIB = ['lib/pdf.min.js', 'lib/pdf.worker.min.js'];   // lector de PDF: se guarda aparte para que sin él igual se instale la app
 const ASSETS = ['./', 'index.html', 'manifest.webmanifest', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
   // 'reload' salta la caché HTTP del navegador para no guardar archivos viejos
-  e.waitUntil(caches.open(V).then(c => c.addAll(ASSETS.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(V).then(c => c.addAll(ASSETS.map(u => new Request(u, { cache: 'reload' })))
+    .then(() => Promise.allSettled(LIB.map(u => c.add(new Request(u, { cache: 'reload' })))))).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== V).map(k => caches.delete(k)))).then(() => self.clients.claim()));

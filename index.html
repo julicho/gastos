@@ -166,7 +166,7 @@ const numStr = n => String(n).replace('.', ',');
 
 /* ---------- datos ---------- */
 const KEY = 'gastos.v2';
-const APP_VERSION = 'v13 · 2 nov 2026';
+const APP_VERSION = 'v14 · 2 nov 2026';
 // row = nombre de la fila del Sheet donde se acumula (Venta USD). Las categorías nuevas van a "Varios".
 const DEFAULT_CATS = [
   { id: 'cenas', name: 'Cenas', emoji: '🍽️', color: '#f08c00', row: 'Varios' },
@@ -673,17 +673,171 @@ async function pullAll() {
 }
 
 /* ---------- resúmenes de tarjeta ---------- */
+/* ---------- lectura de resúmenes en PDF (AMEX) ---------- */
+// Si el texto del comercio contiene "c", se usa el comercio "n" y la categoría "k". Lo que corrijas en la pantalla de revisión se aprende solo.
+const DEFAULT_RULES = [
+  { c: "INC SA 531", n: "Carrefour", k: "Supermercado" },
+  { c: "NETFLIX", n: "Netflix", k: "Suscripciones" },
+  { c: "APPLE.COM", n: "Apple", k: "Suscripciones" },
+  { c: "DLOCAL", n: "DLocal", k: "Suscripciones" },
+  { c: "RAPPI", n: "Rappi", k: "Delivery" },
+  { c: "FARMACITY", n: "Farmacity", k: "Salud" },
+  { c: "MOODYOGA", n: "Moodyoga", k: "Deporte" },
+  { c: "AXION", n: "Axion", k: "Combustible" },
+  { c: "GOYENABAR", n: "Goyena Bar", k: "Salidas" },
+  { c: "BULLER", n: "Buller", k: "Salidas" },
+  { c: "BOCA JUNIORS", n: "Boca Juniors", k: "Ocio" },
+  { c: "MERPAGO*MELI", n: "Mercado Libre", k: "Compras" },
+  { c: "BIDCOM", n: "Bidcom", k: "Compras" },
+  { c: "FEDERACION PATRONAL", n: "Federación Patronal", k: "Seguros" },
+  { c: "ASOCIACIONFUERA", n: "Asociación (MercadoPago)", k: "Otros / donaciones" },
+  { c: "UBER", n: "Uber", k: "Transporte" },
+  { c: "YPF", n: "YPF", k: "Combustible" },
+  { c: "SHELL", n: "Shell", k: "Combustible" },
+  { c: "SPOTIFY", n: "Spotify", k: "Suscripciones" },
+  { c: "CLAROPAY", n: "Claro", k: "Servicios" },
+  { c: "METROGAS", n: "Metrogas", k: "Servicios" },
+  { c: "PEDIDOSYA", n: "PedidosYa", k: "Delivery" },
+  { c: "COTO", n: "Coto", k: "Supermercado" },
+  { c: "DISCO", n: "Disco", k: "Supermercado" },
+  { c: "JUMBO", n: "Jumbo", k: "Supermercado" },
+  { c: "AEROLINEAS", n: "Aerolíneas Argentinas", k: "Viajes" },
+  { c: "FLYBONDI", n: "Flybondi", k: "Viajes" },
+  { c: "BOOKING", n: "Booking", k: "Viajes" },
+  { c: "AIRBNB", n: "Airbnb", k: "Viajes" },
+  { c: "DESPEGAR", n: "Despegar", k: "Viajes" },
+  { c: "LATAM", n: "Latam", k: "Viajes" }
+];
+const MES_NUM = { Enero: 1, Febrero: 2, Marzo: 3, Abril: 4, Mayo: 5, Junio: 6, Julio: 7, Agosto: 8, Septiembre: 9, Octubre: 10, Noviembre: 11, Diciembre: 12 };
+const numAR = s => parseFloat(String(s).replace(/\./g, '').replace(',', '.'));
+
+function loadPdfJs() {
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  return new Promise((res, rej) => {
+    const sc = document.createElement('script');
+    sc.src = 'lib/pdf.min.js';
+    sc.onload = () => { window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js'; res(window.pdfjsLib); };
+    sc.onerror = () => rej(new Error('No pude cargar el lector de PDF. Fijate que la carpeta lib esté subida a GitHub.'));
+    document.head.appendChild(sc);
+  });
+}
+
+// Texto del PDF en el mismo orden en que está escrito: una línea nueva cada vez que cambia la altura.
+async function pdfToText(buf) {
+  const pdfjs = await loadPdfJs();
+  const doc = await pdfjs.getDocument({ data: buf }).promise;
+  let out = '';
+  for (let p = 1; p <= doc.numPages; p++) {
+    const tc = await (await doc.getPage(p)).getTextContent();
+    const lines = []; let line = '', y = null;
+    tc.items.forEach(it => {
+      if (!('str' in it)) return;
+      const iy = it.transform[5];
+      if (y !== null && Math.abs(iy - y) > 3) { lines.push(line); line = ''; }
+      line += (line && it.str ? ' ' : '') + it.str; y = iy;
+      if (it.hasEOL) { lines.push(line); line = ''; y = null; }
+    });
+    if (line) lines.push(line);
+    out += `\n=====PAGINA ${p}=====\n` + lines.map(l => l.replace(/\s+/g, ' ').trim()).join('\n');
+  }
+  return out;
+}
+
+const learnedCats = () => {
+  const m = {};
+  [...S.statements].filter(x => !x.deleted).sort((a, b) => a.cierre.localeCompare(b.cierre)).forEach(x => x.lines.forEach(l => { m[norm(l.n)] = l.c; }));
+  return m;
+};
+const limpiarComercio = d => d.replace(/^=/, '').replace(/\s+\d{6,}.*$/, '').trim().toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase()) || d;
+
+function parseAmexTexto(texto, titular) {
+  if (!texto.includes('American Express')) throw new Error('FORMATO');
+  // Cierre y vencimiento: según el lector de PDF, vienen como "Facturación Actual 25/10/26" o como dos fechas seguidas en la primera página
+  const p1 = texto.split('=====PAGINA 2=====')[0];
+  let cierre = /Facturación\s+Actual\s+(\d{2})\/(\d{2})\/(\d{2})/.exec(p1), vence = /Vencimiento\s+Actual\s+(\d{2})\/(\d{2})\/(\d{2})/.exec(p1);
+  if (!cierre || !vence) {
+    const par = /^(\d{2})\/(\d{2})\/(\d{2})\n(\d{2})\/(\d{2})\/(\d{2})$/m.exec(p1);
+    if (par) { cierre = [par[0], par[1], par[2], par[3]]; vence = [par[0], par[4], par[5], par[6]]; }
+  }
+  if (!cierre || !vence) throw new Error('No encontré las fechas de cierre y vencimiento del resumen.');
+  const dias = (new Date(`20${vence[3]}-${vence[2]}-${vence[1]}`) - new Date(`20${cierre[3]}-${cierre[2]}-${cierre[1]}`)) / 864e5;
+  if (!(dias >= 2 && dias <= 25)) throw new Error('Las fechas de cierre y vencimiento no tienen sentido; no lo cargo para no equivocarme.');
+  const cy = 2000 + +cierre[3], cm = +cierre[2];
+  const lineas = texto.split('\n').map(l => l.trim()).filter(l => l !== '');   // sin líneas vacías
+  const TX = new RegExp('^(\\d{1,2}) de (' + Object.keys(MES_NUM).join('|') + ') ([\\d.]+,\\d{2})\\b(.*)$');
+  const TOT = /^Total de cargos en (PESOS|DOLARES) (.+?) ([\d.]+,\d{2})$/;
+  let seccion = 'ARS', pend = []; const bloques = {}, totales = {};
+  lineas.forEach((l, i) => {
+    if (l.includes('Importe en U$S')) seccion = 'USD';
+    const m = TX.exec(l);
+    if (m) {
+      const desc = lineas[i + 1] || '', extra = lineas[i + 2] || '', mes = MES_NUM[m[2]];
+      const q = /CUOTA (\d+)\/(\d+) DE ([\d.]+,\d{2})/.exec(desc + ' ' + extra);
+      pend.push({ d: `${mes > cm ? cy - 1 : cy}-${String(mes).padStart(2, '0')}-${String(m[1]).padStart(2, '0')}`, v: numAR(m[3]), m: seccion, desc,
+        credito: / CR\b/.test(m[4]) || desc.startsWith('ACREDITACION') || desc.startsWith('DEV '), q: q ? [+q[1], +q[2], numAR(q[3])] : null });
+    }
+    const t = TOT.exec(l);
+    if (t) {
+      const mon = t[1] === 'PESOS' ? 'ARS' : 'USD';
+      bloques[t[2] + '|' + mon] = pend.filter(p => p.m === mon); pend = pend.filter(p => p.m !== mon);
+      totales[t[2] + '|' + mon] = numAR(t[3]);
+    }
+  });
+  const titulares = [...new Set(Object.keys(totales).map(k => k.split('|')[0]))];
+  if (!(titular + '|ARS' in bloques)) { const e = new Error('TITULAR'); e.titulares = titulares; throw e; }
+  const propias = ['ARS', 'USD'].flatMap(mon => (bloques[titular + '|' + mon] || []).filter(p => !p.credito));
+  for (const mon of ['ARS', 'USD']) {
+    const suma = Math.round(propias.filter(p => p.m === mon).reduce((a, p) => a + p.v, 0) * 100) / 100, esperado = totales[titular + '|' + mon] || 0;
+    if (Math.abs(suma - esperado) > 0.01) throw new Error(`La suma de ${mon} (${suma}) no coincide con el total del resumen (${esperado}). No lo cargo para no equivocarme.`);
+  }
+  const learned = learnedCats(), nuevos = [];
+  const lines = propias.sort((a, b) => a.m.localeCompare(b.m) || a.d.localeCompare(b.d)).map(p => {
+    const r = DEFAULT_RULES.find(x => p.desc.toUpperCase().includes(x.c.toUpperCase()));
+    const n = r ? r.n : limpiarComercio(p.desc);
+    let c = r ? r.k : 'Otros';
+    if (learned[norm(n)]) c = learned[norm(n)]; else if (!r) nuevos.push(n);
+    return { d: p.d, v: Math.round(p.v * 100) / 100, m: p.m, c, n, q: p.q };
+  });
+  const iso = x => `20${x[3]}-${x[2]}-${x[1]}`;
+  return { id: 'amex-' + iso(cierre), card: 'Tarjeta AMEX', cierre: iso(cierre), vence: iso(vence), titular,
+    totalArs: totales[titular + '|ARS'], totalUsd: totales[titular + '|USD'] || 0, lines, nuevos };
+}
+
+async function importarPdf(file) {
+  toast('Leyendo el resumen…');
+  try {
+    const texto = await pdfToText(await file.arrayBuffer());
+    if (texto.replace(/=====PAGINA \d+=====|\s/g, '').length < 50) throw new Error('El PDF no tiene texto (parece una foto escaneada). Pedí el resumen en PDF original.');
+    let pack;
+    try { pack = parseAmexTexto(texto, S.settings.titular || 'JULIAN MORLA'); }
+    catch (e) {
+      if (e.message !== 'TITULAR') throw e;
+      const nombre = (prompt(`No encuentro "${S.settings.titular || 'JULIAN MORLA'}" en el resumen. Titulares que figuran: ${e.titulares.join(', ')}.\nEscribí tu nombre tal cual figura:`) || '').trim().toUpperCase();
+      if (!nombre) return;
+      pack = parseAmexTexto(texto, nombre); S.settings.titular = nombre; save();
+    }
+    if (pack.nuevos.length) toast(`Revisá la categoría de: ${pack.nuevos.slice(0, 3).join(', ')}${pack.nuevos.length > 3 ? '…' : ''}`);
+    stmtPreview(pack);
+  } catch (e) {
+    toast(e.message === 'FORMATO' ? 'Por ahora solo leo resúmenes de AMEX. Para VISA o MC necesito ver uno de muestra.' : e.name === 'PasswordException' ? 'El PDF tiene contraseña. Quitásela y probá de nuevo.' : e.name === 'InvalidPDFException' ? 'No pude abrir el archivo como PDF. Probá con el PDF original del resumen.' : e.message);
+  }
+}
+
 function stmtCats() {
   const base = ['Supermercado', 'Delivery', 'Combustible', 'Salud', 'Suscripciones', 'Salidas', 'Ocio', 'Deporte', 'Compras', 'Seguros', 'Hogar', 'Transporte', 'Servicios', 'Viajes', 'Otros'];
   return [...new Set([...base, ...S.statements.flatMap(x => x.lines.map(l => l.c))])];
 }
 function openStmtImport() {
   openSheet(`<h2>Importar resumen de tarjeta</h2>
-    <p class="note">Elegí el archivo .json que te prepara Claude, o pegá su contenido.</p>
-    <input type="file" id="sFile" accept=".json,application/json,text/plain" class="in">
+    <p class="note">Elegí el <b>PDF del resumen</b> (o un archivo .json) desde Archivos. La app lo lee en el teléfono, sin subirlo a ningún lado.</p>
+    <input type="file" id="sFile" accept=".pdf,application/pdf,.json,application/json,text/plain" class="in">
     <label class="f">…o pegá el texto</label><textarea class="in" id="sText" rows="5" placeholder='{"card":"Tarjeta AMEX", …}'></textarea>
     <button class="btn" id="sGo">Revisar</button><button class="btn ghost" data-a="close">Cancelar</button>`);
-  $('#sFile').onchange = async ev => { const f = ev.target.files[0]; if (f) $('#sText').value = await f.text(); };
+  $('#sFile').onchange = async ev => {
+    const f = ev.target.files[0]; if (!f) return;
+    if (/\.pdf$/i.test(f.name) || f.type === 'application/pdf') { await importarPdf(f); return; }
+    $('#sText').value = await f.text();
+  };
   $('#sGo').onclick = () => {
     let pack;
     try { pack = JSON.parse($('#sText').value); } catch (e) { return toast('El texto no es un resumen válido'); }
