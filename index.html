@@ -121,6 +121,7 @@ input.amount { font-size: 34px; font-weight: 700; padding: 10px 14px; }
 .cot-line { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 13px; color: var(--mute); }
 .cot-main { flex: 1; text-align: left; color: inherit; padding: 6px 4px; font-size: 13px; }
 .cot-line .pill { padding: 4px 12px; }
+.falta { display: block; margin-top: 6px; padding: 0; font-size: 12px; color: var(--danger); text-align: left; }
 #toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 90px); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-size: 14px; z-index: 30; opacity: 0; pointer-events: none; transition: opacity .2s; max-width: 90%; text-align: center; }
 #toast.show { opacity: 1; }
 </style>
@@ -169,7 +170,7 @@ const numStr = n => String(n).replace('.', ',');
 
 /* ---------- datos ---------- */
 const KEY = 'gastos.v2';
-const APP_VERSION = 'v16 · 2 nov 2026';
+const APP_VERSION = 'v18 · 2 nov 2026';
 // row = nombre de la fila del Sheet donde se acumula (Venta USD). Las categorías nuevas van a "Varios".
 const DEFAULT_CATS = [
   { id: 'cenas', name: 'Cenas', emoji: '🍽️', color: '#f08c00', row: 'Varios' },
@@ -363,6 +364,7 @@ function listView() {
       html += `<div class="card"><div class="tot" style="grid-template-columns:1.2fr 1fr">
         <div><div class="label">Saldo en pesos</div><div class="big ${hasSa && sa < 0 ? 'neg' : ''}">${hasSa ? money(sa) : '—'}</div></div>
         <div><div class="label">Ahorros</div><div class="big">${ruTxt}</div></div></div>
+        ${hasSa && sa < 0 ? faltaCambiar(-sa) : ''}
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px"><div class="sub" style="margin:0">Según tu planilla${hora}</div>
         ${hasRu ? `<button class="pill" data-a="runway">${ui.showRunway ? '🙈 Ocultar' : '👁 Ver ahorros'}</button>` : ''}</div></div>`;
     }
@@ -552,13 +554,14 @@ function openMov(kind, id, preset = {}) {
   if (e) q('#fDel').onclick = () => removeEntry(e);
 }
 
-function openFx(id) {
+function openFx(id, preset = {}) {
   const e = id ? S.entries.find(x => x.id === id) : null;
   const lastFx = [...live().filter(x => x.type === 'fx')].sort((a, b) => b.date.localeCompare(a.date))[0];
-  const d = e ? { ...e } : { type: 'fx', date: today(), usd: '', ars: '', concept: lastFx ? lastFx.concept : FX_PLATFORMS[0] };
+  const d = e ? { ...e } : { type: 'fx', date: today(), usd: preset.usd || '', ars: '', concept: lastFx ? lastFx.concept : FX_PLATFORMS[0] };
   const known = FX_PLATFORMS.includes(d.concept);
   const sug = e ? null : cotMejor();                                       // TC sugerido: el mejor entre Binance y Fiwind
   const tcInicial = e ? (d.usd > 0 ? Math.round(d.ars / d.usd * 100) / 100 : '') : (sug ? Math.round(sug.v * 100) / 100 : '');
+  if (!e && preset.usd && sug) d.ars = Math.round(preset.usd * sug.v * 100) / 100;     // desde el aviso de saldo: USD y pesos ya calculados
   let driver = e || !sug ? 'ars' : 'tc';                                   // qué campo manda: si tocás el TC se calculan los pesos; si tocás los pesos se calcula el TC
   openSheet(`<h2>${e ? 'Editar conversión' : 'Conversión USD → ARS'}</h2>
     <div class="two"><div><label class="f">USD que vendés</label><input class="in" id="xUsd" inputmode="decimal" value="${d.usd === '' ? '' : numStr(d.usd)}" placeholder="0"></div>
@@ -643,6 +646,13 @@ async function refreshCot(manual) {
   COT.consulta = ahora; cotSave(); cotBusy = false;
   if (manual) toast(keys.every(k => !COT[k].stale) ? '✓ Cotizaciones actualizadas' : '⚠️ No pude actualizar todo: uso el último valor guardado');
   render();
+}
+// Si el saldo en pesos es negativo: cuánto falta y cuántos USD cambiar al TC sugerido (redondeado hacia arriba)
+function faltaCambiar(deficit) {
+  const b = cotMejor();
+  if (!b) return `<div class="falta" style="color:var(--mute)">Sin cotización para calcular (tocá ↻)</div>`;
+  const usd = Math.ceil(deficit / b.v);
+  return `<button class="falta" data-a="cambiar" data-usd="${usd}">Cambiar ≈ <b>US$ ${new Intl.NumberFormat('es-AR').format(usd)}</b> para estar al día${b.stale ? ' ⚠️' : ''}</button>`;
 }
 // TC por defecto: el mejor (más alto) entre Binance y Fiwind
 function cotMejor() {
@@ -1073,6 +1083,7 @@ document.addEventListener('click', ev => {
   else if (a === 'conn') openConn();
   else if (a === 'sync') sync(true);
   else if (a === 'cot') refreshCot(true);
+  else if (a === 'cambiar') openFx(null, { usd: +b.dataset.usd });
   else if (a === 'cotopen') { ui.cotOpen = !ui.cotOpen; render(); }
   else if (a === 'pull') pullAll();
   else if (a === 'cats') openCats();
