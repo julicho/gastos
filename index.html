@@ -166,7 +166,7 @@ const numStr = n => String(n).replace('.', ',');
 
 /* ---------- datos ---------- */
 const KEY = 'gastos.v2';
-const APP_VERSION = 'v12 · 2 nov 2026';
+const APP_VERSION = 'v13 · 2 nov 2026';
 // row = nombre de la fila del Sheet donde se acumula (Venta USD). Las categorías nuevas van a "Varios".
 const DEFAULT_CATS = [
   { id: 'cenas', name: 'Cenas', emoji: '🍽️', color: '#f08c00', row: 'Varios' },
@@ -174,6 +174,7 @@ const DEFAULT_CATS = [
   { id: 'salidas', name: 'Salidas', emoji: '🍻', color: '#d6336c', row: 'Varios' },
   { id: 'delivery', name: 'Delivery', emoji: '🛵', color: '#e8590c', row: 'Varios' },
   { id: 'compras', name: 'Compras', emoji: '🛍️', color: '#0c8599', row: 'Varios' },
+  { id: 'viajes', name: 'Viajes', emoji: '✈️', color: '#1098ad', row: 'Varios' },
   { id: 'otros', name: 'Otros', emoji: '📦', color: '#868e96', row: 'Varios' },
   { id: 'carlos', name: 'Carlos', emoji: '🤝', color: '#5c7cfa', row: 'Carlos' },
   { id: 'marcel', name: 'Inglés Marcel', emoji: '🇬🇧', color: '#4263eb', row: 'Ingles Marcel' },
@@ -199,6 +200,7 @@ const KW = {
   transporte: ['uber', 'cabify', 'didi', 'sube', 'nafta', 'ypf', 'peaje', 'estacionamiento', 'taxi'],
   salud: ['farmacia', 'farmacity', 'medico', 'dentista', 'kinesio', 'psicologo'],
   subs: ['netflix', 'spotify', 'youtube', 'icloud', 'chatgpt', 'openai', 'claude', 'github'],
+  viajes: ['aerolineas', 'flybondi', 'booking', 'airbnb', 'hotel', 'despegar', 'vuelo', 'latam', 'pasaje', 'hostel'],
   compras: ['mercadolibre', 'mercado libre', 'amazon', 'ropa', 'zapatillas'],
 };
 
@@ -212,6 +214,14 @@ function load() {
         const quitar = ['super', 'transporte', 'salud', 'subs'];
         j.categories = j.categories.filter(c => !quitar.includes(c.id) || j.entries.some(e => e.cat === c.id));
         j.settings.cleanup1 = true;
+      }
+      // Se agrega la categoría Viajes (una sola vez)
+      if (j.settings && !j.settings.cleanup3) {
+        if (!j.categories.some(c => c.id === 'viajes' || String(c.name).toLowerCase() === 'viajes')) {
+          const i = j.categories.findIndex(c => c.id === 'otros');
+          j.categories.splice(i >= 0 ? i : j.categories.length, 0, { id: 'viajes', name: 'Viajes', emoji: '✈️', color: '#1098ad', row: 'Varios' });
+        }
+        j.settings.cleanup3 = true;
       }
       // Se quitan los atajos (monto fijo) de Carlos y Marcel de Inicio
       if (j.settings && !j.settings.cleanup2) {
@@ -664,7 +674,7 @@ async function pullAll() {
 
 /* ---------- resúmenes de tarjeta ---------- */
 function stmtCats() {
-  const base = ['Supermercado', 'Delivery', 'Combustible', 'Salud', 'Suscripciones', 'Salidas', 'Ocio', 'Deporte', 'Compras', 'Seguros', 'Hogar', 'Transporte', 'Servicios', 'Otros'];
+  const base = ['Supermercado', 'Delivery', 'Combustible', 'Salud', 'Suscripciones', 'Salidas', 'Ocio', 'Deporte', 'Compras', 'Seguros', 'Hogar', 'Transporte', 'Servicios', 'Viajes', 'Otros'];
   return [...new Set([...base, ...S.statements.flatMap(x => x.lines.map(l => l.c))])];
 }
 function openStmtImport() {
