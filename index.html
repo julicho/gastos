@@ -126,6 +126,9 @@ input.amount { font-size: 34px; font-weight: 700; padding: 10px 14px; }
 .chk { display: flex; gap: 12px; align-items: center; margin-top: 14px; padding: 12px 14px; background: var(--card); border-radius: 12px; font-size: 16px; }
 .chk input { width: 22px; height: 22px; }
 .porpagar { display: block; width: 100%; text-align: left; margin: 0 0 10px; padding: 10px 14px; border-radius: 12px; background: color-mix(in srgb, #e8590c 14%, var(--card)); font-size: 14px; color: var(--ink); }
+.ajrow { display: grid; grid-template-columns: 1fr 1fr 40px; gap: 6px; margin-top: 10px; }
+.ajrow .in { padding: 9px 10px; font-size: 15px; }
+.ajrow input[data-k=n] { grid-column: 1 / -1; }
 #toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 90px); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-size: 14px; z-index: 30; opacity: 0; pointer-events: none; transition: opacity .2s; max-width: 90%; text-align: center; }
 #toast.show { opacity: 1; }
 </style>
@@ -174,7 +177,7 @@ const numStr = n => String(n).replace('.', ',');
 
 /* ---------- datos ---------- */
 const KEY = 'gastos.v2';
-const APP_VERSION = 'v19 · 2 nov 2026';
+const APP_VERSION = 'v20 · 2 nov 2026';
 // row = nombre de la fila del Sheet donde se acumula (Venta USD). Las categorías nuevas van a "Varios".
 const DEFAULT_CATS = [
   { id: 'cenas', name: 'Cenas', emoji: '🍽️', color: '#f08c00', row: 'Varios' },
@@ -334,7 +337,7 @@ function row(e) {
   const c = cat(e.cat), ing = e.kind === 'ingreso';
   const sub = '';
   return `<button class="row" data-a="edit" data-id="${e.id}" style="--c:${c.color}"><div class="dot">${c.emoji}</div>
-    <div class="mid"><div class="t">${esc(e.concept || c.name)}</div><div class="s">${esc(c.name)}${e.estado === 'pend' ? ' · <span class="apagar">A pagar</span>' : e.estado === 'pago' ? ' · pagado ' + dm(e.pagadoEl || e.date) : ''}${e.synced ? '' : ' · <span class="pend">⏳</span>'}${e.err ? ' · ⚠️' : ''}</div></div>
+    <div class="mid"><div class="t">${esc(e.concept || c.name)}</div><div class="s">${esc(c.name)}${e.partes ? ' · con ajustes' : ''}${e.estado === 'pend' ? ' · <span class="apagar">A pagar</span>' : e.estado === 'pago' ? ' · pagado ' + dm(e.pagadoEl || e.date) : ''}${e.synced ? '' : ' · <span class="pend">⏳</span>'}${e.err ? ' · ⚠️' : ''}</div></div>
     <div class="amt ${ing ? 'pos' : ''}">${ing ? '+' : '−'}${money(e.amount, e.currency)}${sub}</div></button>`;
 }
 
@@ -533,6 +536,7 @@ function openMov(kind, id, preset = {}) {
   const e = id ? S.entries.find(x => x.id === id) : null;
   const d = e ? { ...e } : { type: 'mov', kind, date: today(), concept: '', cat: preset.cat || null, currency: preset.currency || lastCurrency(), amount: preset.amount || '' };
   if (!e && d.cat && cat(d.cat).cur) d.currency = cat(d.cat).cur;
+  if (e && e.partes && e.partes.length > 1) d.amount = e.partes[0].v;      // en un gasto con ajustes, el campo de monto es la base
   const only = preset.only; // 'card' limita las categorías a tarjetas
   let picked = !!d.cat;
   const avail = () => S.categories.filter(c => only === 'card' ? c.card : (c.kind || 'gasto') === d.kind);
@@ -541,6 +545,7 @@ function openMov(kind, id, preset = {}) {
   openSheet(`<h2>${title}</h2>
     <input class="in amount" id="fAmt" inputmode="decimal" placeholder="0" value="${d.amount === '' ? '' : numStr(d.amount)}" autocomplete="off">
     <div class="seg" style="margin-top:8px" id="fCur"><button type="button" data-c="ARS">ARS $</button><button type="button" data-c="USD">USD US$</button></div>
+    <div id="fAjustes"></div>
     <label class="f">Concepto ${only === 'card' ? '(opcional)' : ''}</label>
     <input class="in" id="fCon" placeholder="${d.kind === 'ingreso' ? 'Ej: me devuelve Fede' : 'Ej: Uber, cena, padel…'}" value="${esc(d.concept)}" autocomplete="off">
     <div class="hint" id="fHint"></div>
@@ -551,6 +556,28 @@ function openMov(kind, id, preset = {}) {
     ${e ? '<button class="btn danger" id="fDel">Eliminar</button>' : ''}
     <button class="btn ghost" data-a="close">Cancelar</button>`);
   const q = s => $(s, $('#sheet'));
+  if (e && e.partes && e.partes.length > 1) d.amount = e.partes[0].v;      // en un gasto con ajustes, el campo de monto es la base
+  d.ajustes = e && e.partes && e.partes.length > 1 ? e.partes.slice(1).map(x => ({ n: x.n, s: x.v < 0 ? '-' : '+', abs: Math.abs(x.v) })) : [];
+  const totalTxt = () => {
+    const box = q('#fTotal'); if (!box) return;
+    const base = parseNum(q('#fAmt').value) || 0, adj = d.ajustes.reduce((a, x) => a + (x.s === '-' ? -1 : 1) * (x.abs || 0), 0);
+    box.innerHTML = d.ajustes.length ? `Total: <b>${money(base + adj, d.currency)}</b> &nbsp;(${money(base, d.currency)} ${adj < 0 ? '−' : '+'} ${money(Math.abs(adj), d.currency)})` : '';
+  };
+  const ajUI = () => {
+    q('#fAjustes').innerHTML = d.ajustes.map((a, i) => `<div class="ajrow">
+        <select class="in" data-aj="${i}" data-k="s"><option value="-" ${a.s === '-' ? 'selected' : ''}>− Restar</option><option value="+" ${a.s === '+' ? 'selected' : ''}>+ Sumar</option></select>
+        <input class="in" data-aj="${i}" data-k="abs" inputmode="decimal" placeholder="0" value="${a.abs ? numStr(a.abs) : ''}">
+        <button type="button" class="icon-btn" data-ajdel="${i}" aria-label="Quitar">✕</button>
+        <input class="in" data-aj="${i}" data-k="n" placeholder="Concepto (ej: expensas extraordinarias)" value="${esc(a.n)}"></div>`).join('') +
+      `<button type="button" class="pill" id="fAjAdd" style="margin-top:8px">${d.ajustes.length ? '+ Otro ajuste' : '➕ Sumar o restar algo'}</button><div class="hint" id="fTotal" style="font-size:14px"></div>`;
+    q('#fAjustes').oninput = ev => { const t = ev.target; if (t.dataset.aj == null) return; const a = d.ajustes[+t.dataset.aj]; a[t.dataset.k] = t.dataset.k === 'abs' ? Math.abs(parseNum(t.value) || 0) : t.value; totalTxt(); };
+    q('#fAjustes').onchange = q('#fAjustes').oninput;
+    q('#fAjustes').onclick = ev => {
+      if (ev.target.id === 'fAjAdd') { d.ajustes.push({ n: '', s: '-', abs: 0 }); ajUI(); const f = q('#fAjustes').querySelectorAll('input[data-k=abs]'); f[f.length - 1].focus(); }
+      const del = ev.target.closest('[data-ajdel]'); if (del) { d.ajustes.splice(+del.dataset.ajdel, 1); ajUI(); }
+    };
+    totalTxt();
+  };
   d.estado = e ? (e.estado || 'pend') : 'pend';                    // los gastos con seguimiento arrancan como "A pagar"
   d.pagadoEl = e ? e.pagadoEl : null;
   const pagoUI = () => {
@@ -570,7 +597,9 @@ function openMov(kind, id, preset = {}) {
     pagoUI();
   };
   sync();
-  q('#fCur').onclick = ev => { const b = ev.target.closest('button'); if (b) { d.currency = b.dataset.c; sync(); } };
+  ajUI();
+  q('#fAmt').addEventListener('input', totalTxt);
+  q('#fCur').onclick = ev => { const b = ev.target.closest('button'); if (b) { d.currency = b.dataset.c; sync(); totalTxt(); } };
   q('#fCats').onclick = ev => {
     const b = ev.target.closest('button'); if (!b) return;
     d.cat = b.dataset.cat; picked = true; q('#fHint').textContent = '';
@@ -589,13 +618,17 @@ function openMov(kind, id, preset = {}) {
   };
   if (!e) setTimeout(() => q('#fAmt').focus(), 50);
   q('#fSave').onclick = () => {
-    const amount = parseNum(q('#fAmt').value);
-    if (!amount || amount <= 0) { toast('Poné un monto válido'); q('#fAmt').focus(); return; }
+    const base = parseNum(q('#fAmt').value);
+    if (!base || base <= 0) { toast('Poné un monto válido'); q('#fAmt').focus(); return; }
+    const ajs = d.ajustes.filter(a => a.abs > 0).map(a => ({ n: (a.n || '').trim() || (a.s === '-' ? 'Descuento' : 'Adicional'), v: (a.s === '-' ? -1 : 1) * a.abs }));
+    const amount = Math.round((base + ajs.reduce((x, a) => x + a.v, 0)) * 100) / 100;
+    if (!(amount > 0)) { toast('El total tiene que ser mayor a cero'); return; }
+    const partes = ajs.length ? [{ n: q('#fCon').value.trim() || (d.cat ? cat(d.cat).name : 'Monto'), v: base }, ...ajs] : undefined;
     if (!d.cat) { toast('Elegí una categoría'); return; }
     const date = q('#fDate').value || today();
     const sigue = !!(cat(d.cat).pago && d.kind === 'gasto');
     const pagoEl = sigue && d.estado === 'pago' ? ((q('#fPagoFecha') && q('#fPagoFecha').value) || today()) : null;
-    const rec = { id: e ? e.id : uid(), type: 'mov', kind: d.kind, date, concept: q('#fCon').value.trim(), cat: d.cat, row: cat(d.cat).row || 'Varios', currency: d.currency, amount, estado: sigue ? d.estado : undefined, pagadoEl: pagoEl, synced: false, known: e ? e.known : false };
+    const rec = { id: e ? e.id : uid(), type: 'mov', kind: d.kind, date, concept: q('#fCon').value.trim(), cat: d.cat, row: cat(d.cat).row || 'Varios', currency: d.currency, amount, partes, estado: sigue ? d.estado : undefined, pagadoEl: pagoEl, synced: false, known: e ? e.known : false };
     upsert(rec);
     afterSave(date, e ? 'Cambios guardados' : 'Guardado');
   };
@@ -739,7 +772,7 @@ async function api(body) {
 const wire = e => e.deleted ? { op: 'delete', type: e.type, id: e.id } :
   e.type === 'stmt' ? { op: 'upsert', type: 'stmt', id: e.id, card: e.card, cierre: e.cierre, vence: e.vence, mes: e.mes, titular: e.titular, cargado: e.cargado, totalArs: e.totalArs, totalUsd: e.totalUsd, lines: e.lines, known: !!e.known } :
   e.type === 'fx' ? { op: 'upsert', type: 'fx', id: e.id, date: e.date, usd: e.usd, ars: e.ars, concept: e.concept } :
-  { op: 'upsert', type: 'mov', id: e.id, date: e.date, kind: e.kind, amount: e.amount, currency: e.currency, concept: e.concept, cat: cat(e.cat).name, row: e.row, estado: e.estado, pagadoEl: e.pagadoEl, known: !!e.known };
+  { op: 'upsert', type: 'mov', id: e.id, date: e.date, kind: e.kind, amount: e.amount, currency: e.currency, concept: e.concept, cat: cat(e.cat).name, row: e.row, estado: e.estado, pagadoEl: e.pagadoEl, partes: e.partes, known: !!e.known };
 
 let syncing = false;
 async function sync(manual) {
@@ -789,7 +822,7 @@ async function pullAll() {
       }
       const rec = r.type === 'fx'
         ? { id: r.id, type: 'fx', date: r.date, usd: +r.usd, ars: +r.ars, concept: r.concept, synced: true, known: true }
-        : { id: r.id, type: 'mov', kind: r.kind, date: r.date, concept: r.concept || '', cat: c.id, row: r.row, currency: r.currency, amount: +r.amount, estado: r.estado === 'pend' || r.estado === 'pago' ? r.estado : undefined, pagadoEl: r.pagadoEl || null, synced: true, known: true };
+        : { id: r.id, type: 'mov', kind: r.kind, date: r.date, concept: r.concept || '', cat: c.id, row: r.row, currency: r.currency, amount: +r.amount, estado: r.estado === 'pend' || r.estado === 'pago' ? r.estado : undefined, pagadoEl: r.pagadoEl || null, partes: r.partes || undefined, synced: true, known: true };
       if (!mine) added++;
       upsert(rec);
     });
