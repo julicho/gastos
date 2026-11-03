@@ -113,7 +113,7 @@ input.amount { font-size: 34px; font-weight: 700; padding: 10px 14px; }
 .catedit { background: var(--card); border-radius: 14px; padding: 10px; margin-bottom: 8px; }
 .catedit .l1 { display: flex; gap: 8px; margin-bottom: 8px; }
 .catedit .l1 input:first-child { width: 56px; text-align: center; }
-.catedit .l2 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.catedit .l2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .catedit small { color: var(--mute); font-size: 11px; display: block; margin-bottom: 2px; }
 .srow { padding: 8px 0; border-bottom: 1px solid var(--line); }
 .srow .top { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; margin-bottom: 4px; }
@@ -122,6 +122,10 @@ input.amount { font-size: 34px; font-weight: 700; padding: 10px 14px; }
 .cot-main { flex: 1; text-align: left; color: inherit; padding: 6px 4px; font-size: 13px; }
 .cot-line .pill { padding: 4px 12px; }
 .falta { display: block; margin-top: 6px; padding: 0; font-size: 12px; color: var(--danger); text-align: left; }
+.apagar { color: #e8590c; font-weight: 700; }
+.chk { display: flex; gap: 12px; align-items: center; margin-top: 14px; padding: 12px 14px; background: var(--card); border-radius: 12px; font-size: 16px; }
+.chk input { width: 22px; height: 22px; }
+.porpagar { display: block; width: 100%; text-align: left; margin: 0 0 10px; padding: 10px 14px; border-radius: 12px; background: color-mix(in srgb, #e8590c 14%, var(--card)); font-size: 14px; color: var(--ink); }
 #toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 90px); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-size: 14px; z-index: 30; opacity: 0; pointer-events: none; transition: opacity .2s; max-width: 90%; text-align: center; }
 #toast.show { opacity: 1; }
 </style>
@@ -170,7 +174,7 @@ const numStr = n => String(n).replace('.', ',');
 
 /* ---------- datos ---------- */
 const KEY = 'gastos.v2';
-const APP_VERSION = 'v18 · 2 nov 2026';
+const APP_VERSION = 'v19 · 2 nov 2026';
 // row = nombre de la fila del Sheet donde se acumula (Venta USD). Las categorías nuevas van a "Varios".
 const DEFAULT_CATS = [
   { id: 'cenas', name: 'Cenas', emoji: '🍽️', color: '#f08c00', row: 'Varios' },
@@ -183,13 +187,13 @@ const DEFAULT_CATS = [
   { id: 'carlos', name: 'Carlos', emoji: '🤝', color: '#5c7cfa', row: 'Carlos' },
   { id: 'marcel', name: 'Inglés Marcel', emoji: '🇬🇧', color: '#4263eb', row: 'Ingles Marcel' },
   { id: 'efectivo', name: 'Retiro de efectivo', emoji: '💵', color: '#2b8a3e', row: 'Efectivo' },
-  { id: 'alquiler', name: 'Alquiler', emoji: '🏠', color: '#7048e8', row: 'Alquiler' },
-  { id: 'expensas', name: 'Expensas', emoji: '🏢', color: '#9775fa', row: 'Expensas' },
-  { id: 'monotributo', name: 'Monotributo', emoji: '🧾', color: '#868e96', row: 'Monotributo' },
-  { id: 'patente', name: 'Patente X1', emoji: '🚗', color: '#495057', row: 'Patente X1' },
-  { id: 'visa', name: 'Tarjeta VISA', emoji: '💳', color: '#1971c2', row: 'Tarjeta VISA', card: true },
-  { id: 'mc', name: 'Tarjeta MC', emoji: '💳', color: '#e03131', row: 'Tarjeta MC', card: true },
-  { id: 'amex', name: 'Tarjeta AMEX', emoji: '💳', color: '#0b7285', row: 'Tarjeta AMEX', card: true },
+  { id: 'alquiler', name: 'Alquiler', emoji: '🏠', color: '#7048e8', row: 'Alquiler', pago: true },
+  { id: 'expensas', name: 'Expensas', emoji: '🏢', color: '#9775fa', row: 'Expensas', pago: true },
+  { id: 'monotributo', name: 'Monotributo', emoji: '🧾', color: '#868e96', row: 'Monotributo', pago: true },
+  { id: 'patente', name: 'Patente X1', emoji: '🚗', color: '#495057', row: 'Patente X1', pago: true },
+  { id: 'visa', name: 'Tarjeta VISA', emoji: '💳', color: '#1971c2', row: 'Tarjeta VISA', card: true, pago: true },
+  { id: 'mc', name: 'Tarjeta MC', emoji: '💳', color: '#e03131', row: 'Tarjeta MC', card: true, pago: true },
+  { id: 'amex', name: 'Tarjeta AMEX', emoji: '💳', color: '#0b7285', row: 'Tarjeta AMEX', card: true, pago: true },
   { id: 'sueldo', name: 'Sueldo', emoji: '💼', color: '#2f9e44', row: 'Sueldo LI.FI', kind: 'ingreso', cur: 'USD' },
   { id: 'reintegro', name: 'Me devuelven plata', emoji: '↩️', color: '#20c997', row: 'Varios', kind: 'ingreso' },
 ];
@@ -218,6 +222,11 @@ function load() {
         const quitar = ['super', 'transporte', 'salud', 'subs'];
         j.categories = j.categories.filter(c => !quitar.includes(c.id) || j.entries.some(e => e.cat === c.id));
         j.settings.cleanup1 = true;
+      }
+      // Seguimiento de pago ("A pagar" / "Pagado") para los gastos grandes (una sola vez)
+      if (j.settings && !j.settings.cleanup4) {
+        j.categories.forEach(c => { if (['alquiler', 'expensas', 'monotributo', 'patente', 'visa', 'mc', 'amex'].includes(c.id) && c.pago === undefined) c.pago = true; });
+        j.settings.cleanup4 = true;
       }
       // Se agrega la categoría Viajes (una sola vez)
       if (j.settings && !j.settings.cleanup3) {
@@ -325,7 +334,7 @@ function row(e) {
   const c = cat(e.cat), ing = e.kind === 'ingreso';
   const sub = '';
   return `<button class="row" data-a="edit" data-id="${e.id}" style="--c:${c.color}"><div class="dot">${c.emoji}</div>
-    <div class="mid"><div class="t">${esc(e.concept || c.name)}</div><div class="s">${esc(c.name)}${e.synced ? '' : ' · <span class="pend">⏳</span>'}${e.err ? ' · ⚠️' : ''}</div></div>
+    <div class="mid"><div class="t">${esc(e.concept || c.name)}</div><div class="s">${esc(c.name)}${e.estado === 'pend' ? ' · <span class="apagar">A pagar</span>' : e.estado === 'pago' ? ' · pagado ' + dm(e.pagadoEl || e.date) : ''}${e.synced ? '' : ' · <span class="pend">⏳</span>'}${e.err ? ' · ⚠️' : ''}</div></div>
     <div class="amt ${ing ? 'pos' : ''}">${ing ? '+' : '−'}${money(e.amount, e.currency)}${sub}</div></button>`;
 }
 
@@ -337,6 +346,27 @@ function closingMonth() {
   else if (day < last - 2) return null;
   const t = totals(y, m);
   return (t.gasto > 0 || t.usdGasto > 0) ? { y, m } : null;
+}
+
+const porPagar = () => live().filter(e => e.type === 'mov' && e.kind === 'gasto' && e.estado === 'pend');
+function porPagarLinea() {
+  const L = porPagar(); if (!L.length) return '';
+  const a = L.filter(e => e.currency === 'ARS').reduce((x, e) => x + e.amount, 0), u = L.filter(e => e.currency === 'USD').reduce((x, e) => x + e.amount, 0);
+  return `<button class="porpagar" data-a="porpagar">⏳ <b>Por pagar:</b> ${[a ? money(a) : '', u ? money(u, 'USD') : ''].filter(Boolean).join(' + ')} · ${L.length} ${L.length === 1 ? 'pendiente' : 'pendientes'} ›</button>`;
+}
+function openPorPagar() {
+  const L = porPagar().sort((x, y) => x.date.localeCompare(y.date));
+  if (!L.length) { closeSheet(); return; }
+  openSheet(`<h2>Por pagar</h2><p class="note">Tocá “Pagué hoy” cuando lo pagues: se anota la fecha de hoy en tu planilla.</p>` +
+    L.map(e => { const c = cat(e.cat); return `<div class="srow"><div class="top"><span>${c.emoji} ${esc(e.concept || c.name)} <span style="color:var(--mute)">· ${dm(e.date)}</span></span><b>${money(e.amount, e.currency)}</b></div>
+      <div style="display:flex;gap:8px;margin-top:6px"><button class="pill on" data-a="pagar" data-id="${e.id}">✓ Pagué hoy</button><button class="pill" data-a="edit" data-id="${e.id}">Editar</button></div></div>`; }).join('') +
+    `<button class="btn ghost" data-a="close">Cerrar</button>`);
+}
+function marcarPagado(id) {
+  const e = S.entries.find(x => x.id === id); if (!e) return;
+  e.estado = 'pago'; e.pagadoEl = today(); e.synced = false; e.err = null;
+  save(); render(); toast('Marcado como pagado'); sync();
+  porPagar().length ? openPorPagar() : closeSheet();
 }
 
 function listView() {
@@ -369,10 +399,11 @@ function listView() {
         ${hasRu ? `<button class="pill" data-a="runway">${ui.showRunway ? '🙈 Ocultar' : '👁 Ver ahorros'}</button>` : ''}</div></div>`;
     }
   }
+  html += porPagarLinea();
   html += `<div class="card hero"><div class="tot">
-    <div><div class="label">Gastos</div><div class="big">${money(t.gasto)}</div></div>
-    <div><div class="label">Ingresos</div><div class="big pos">${money(t.ingreso)}</div></div>
-    <div><div class="label">Tarjetas</div><div class="big">${money(t.tarjeta)}</div></div></div>
+    <div><div class="label">Gastos</div><div class="big" style="${money(t.gasto).length > 12 ? 'font-size:15px' : ''}">${money(t.gasto)}</div></div>
+    <div><div class="label">Ingresos</div><div class="big pos" style="${money(t.ingreso).length > 12 ? 'font-size:15px' : ''}">${money(t.ingreso)}</div></div>
+    <div><div class="label">Tarjetas</div><div class="big" style="${money(t.tarjeta).length > 12 ? 'font-size:15px' : ''}">${money(t.tarjeta)}</div></div></div>
     ${(t.usdGasto || t.usdIngreso) ? `<div class="sub">En dólares: gastos ${money(t.usdGasto, 'USD')} · ingresos ${money(t.usdIngreso, 'USD')}</div>` : ''}</div>`;
   const presets = S.categories.filter(c => c.preset);
   if (presets.length) html += `<div class="chips">` + presets.map(c => `<button data-a="preset" data-id="${c.id}">${c.emoji} ${esc(c.name)} ${money(c.preset)}</button>`).join('') + `</div>`;
@@ -514,14 +545,29 @@ function openMov(kind, id, preset = {}) {
     <input class="in" id="fCon" placeholder="${d.kind === 'ingreso' ? 'Ej: me devuelve Fede' : 'Ej: Uber, cena, padel…'}" value="${esc(d.concept)}" autocomplete="off">
     <div class="hint" id="fHint"></div>
     <label class="f">Categoría</label><div class="cats" id="fCats">${catBtns()}</div>
-    <label class="f">Fecha</label><input class="in" type="date" id="fDate" value="${d.date}">
+    <div id="fPagoBox"></div>
+    <label class="f" id="fDateLbl">Fecha</label><input class="in" type="date" id="fDate" value="${d.date}">
     <button class="btn" id="fSave">Guardar</button>
     ${e ? '<button class="btn danger" id="fDel">Eliminar</button>' : ''}
     <button class="btn ghost" data-a="close">Cancelar</button>`);
   const q = s => $(s, $('#sheet'));
+  d.estado = e ? (e.estado || 'pend') : 'pend';                    // los gastos con seguimiento arrancan como "A pagar"
+  d.pagadoEl = e ? e.pagadoEl : null;
+  const pagoUI = () => {
+    const c = d.cat ? cat(d.cat) : null, box = q('#fPagoBox');
+    const sigue = !!(c && c.pago && d.kind === 'gasto');
+    q('#fDateLbl').textContent = sigue ? 'Fecha del gasto (cuando llegó o vence)' : 'Fecha';
+    if (!sigue) { box.innerHTML = ''; return; }
+    box.innerHTML = `<label class="chk"><input type="checkbox" id="fPagado" ${d.estado === 'pago' ? 'checked' : ''}> <b>Ya lo pagué</b></label>
+      <div ${d.estado === 'pago' ? '' : 'hidden'}><label class="f">Fecha de pago</label><input class="in" type="date" id="fPagoFecha" value="${d.pagadoEl || today()}"></div>
+      ${d.estado === 'pago' ? '' : '<div class="hint" style="color:var(--mute)">Queda como “A pagar” hasta que lo marques como pagado.</div>'}`;
+    q('#fPagado').onchange = ev => { d.estado = ev.target.checked ? 'pago' : 'pend'; if (d.estado === 'pago' && !d.pagadoEl) d.pagadoEl = today(); pagoUI(); };
+    if (q('#fPagoFecha')) q('#fPagoFecha').onchange = ev => { d.pagadoEl = ev.target.value; };
+  };
   const sync = () => {
     q('#fCur').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.c === d.currency));
     q('#fCats').innerHTML = catBtns();
+    pagoUI();
   };
   sync();
   q('#fCur').onclick = ev => { const b = ev.target.closest('button'); if (b) { d.currency = b.dataset.c; sync(); } };
@@ -547,7 +593,9 @@ function openMov(kind, id, preset = {}) {
     if (!amount || amount <= 0) { toast('Poné un monto válido'); q('#fAmt').focus(); return; }
     if (!d.cat) { toast('Elegí una categoría'); return; }
     const date = q('#fDate').value || today();
-    const rec = { id: e ? e.id : uid(), type: 'mov', kind: d.kind, date, concept: q('#fCon').value.trim(), cat: d.cat, row: cat(d.cat).row || 'Varios', currency: d.currency, amount, synced: false, known: e ? e.known : false };
+    const sigue = !!(cat(d.cat).pago && d.kind === 'gasto');
+    const pagoEl = sigue && d.estado === 'pago' ? ((q('#fPagoFecha') && q('#fPagoFecha').value) || today()) : null;
+    const rec = { id: e ? e.id : uid(), type: 'mov', kind: d.kind, date, concept: q('#fCon').value.trim(), cat: d.cat, row: cat(d.cat).row || 'Varios', currency: d.currency, amount, estado: sigue ? d.estado : undefined, pagadoEl: pagoEl, synced: false, known: e ? e.known : false };
     upsert(rec);
     afterSave(date, e ? 'Cambios guardados' : 'Guardado');
   };
@@ -691,7 +739,7 @@ async function api(body) {
 const wire = e => e.deleted ? { op: 'delete', type: e.type, id: e.id } :
   e.type === 'stmt' ? { op: 'upsert', type: 'stmt', id: e.id, card: e.card, cierre: e.cierre, vence: e.vence, mes: e.mes, titular: e.titular, cargado: e.cargado, totalArs: e.totalArs, totalUsd: e.totalUsd, lines: e.lines, known: !!e.known } :
   e.type === 'fx' ? { op: 'upsert', type: 'fx', id: e.id, date: e.date, usd: e.usd, ars: e.ars, concept: e.concept } :
-  { op: 'upsert', type: 'mov', id: e.id, date: e.date, kind: e.kind, amount: e.amount, currency: e.currency, concept: e.concept, cat: cat(e.cat).name, row: e.row, known: !!e.known };
+  { op: 'upsert', type: 'mov', id: e.id, date: e.date, kind: e.kind, amount: e.amount, currency: e.currency, concept: e.concept, cat: cat(e.cat).name, row: e.row, estado: e.estado, pagadoEl: e.pagadoEl, known: !!e.known };
 
 let syncing = false;
 async function sync(manual) {
@@ -741,7 +789,7 @@ async function pullAll() {
       }
       const rec = r.type === 'fx'
         ? { id: r.id, type: 'fx', date: r.date, usd: +r.usd, ars: +r.ars, concept: r.concept, synced: true, known: true }
-        : { id: r.id, type: 'mov', kind: r.kind, date: r.date, concept: r.concept || '', cat: c.id, row: r.row, currency: r.currency, amount: +r.amount, synced: true, known: true };
+        : { id: r.id, type: 'mov', kind: r.kind, date: r.date, concept: r.concept || '', cat: c.id, row: r.row, currency: r.currency, amount: +r.amount, estado: r.estado === 'pend' || r.estado === 'pago' ? r.estado : undefined, pagadoEl: r.pagadoEl || null, synced: true, known: true };
       if (!mine) added++;
       upsert(rec);
     });
@@ -950,7 +998,8 @@ function stmtPreview(pack) {
     <select class="in" id="sMes">${[-2, -1, 0, 1].map(k => { const d = new Date(new Date().getFullYear(), new Date().getMonth() + k, 1), v = monthKey(d.getFullYear(), d.getMonth()); return `<option value="${v}" ${v === pack.mes ? 'selected' : ''}>${monthName(d.getFullYear(), d.getMonth())}${k === 0 ? ' (mes actual)' : ''}</option>`; }).join('')}</select>
     ${payCat ? `<div class="card" style="box-shadow:none;margin-top:12px"><label style="display:flex;gap:8px;align-items:center;font-weight:600"><input type="checkbox" id="sPago" checked> Cargar también el pago de ${esc(pack.card)}</label>
       <div class="two"><div><label class="f">Monto que pagás</label><input class="in" id="sPagoMonto" inputmode="decimal" value="${numStr(pagoPrev ? pagoPrev.amount : pack.totalArs)}"></div>
-      <div><label class="f">Fecha del pago</label><input class="in" type="date" id="sPagoFecha" value="${pagoPrev ? pagoPrev.date : today()}"></div></div>
+      <div><label class="f">Fecha</label><input class="in" type="date" id="sPagoFecha" value="${pagoPrev ? pagoPrev.date : today()}"></div></div>
+      <label class="chk" style="margin-top:10px"><input type="checkbox" id="sPagado" ${pagoPrev && pagoPrev.estado === 'pago' ? 'checked' : ''}> <b>Ya lo pagué</b></label>
       ${sumUsd ? `<label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:14px"><input type="checkbox" id="sPagoUsd" ${S.entries.some(e => e.id === pagoUsdId && !e.deleted) ? 'checked' : ''}> También el pago de ${money(sumUsd, 'USD')} en dólares</label>` : ''}
       ${pagoPrev ? '<div class="hint" style="color:var(--mute)">Ya había un pago cargado: se actualiza, no se duplica.</div>' : ''}</div>` : ''}
     <p class="note">Corregí la categoría de lo que no coincida (podés escribir una nueva).</p>
@@ -966,7 +1015,7 @@ function stmtPreview(pack) {
       const monto = parseNum($('#sPagoMonto').value), fecha = $('#sPagoFecha').value || today();
       const mkPago = (id, cur, amount) => {
         const old = S.entries.find(e => e.id === id && !e.deleted);
-        upsert({ id, type: 'mov', kind: 'gasto', date: fecha, concept: 'Pago resumen ' + pack.card.replace(/^Tarjeta /i, ''), cat: payCat.id, row: payCat.row || payCat.name, currency: cur, amount, synced: false, known: old ? old.known : false });
+        upsert({ id, type: 'mov', kind: 'gasto', date: fecha, concept: 'Pago resumen ' + pack.card.replace(/^Tarjeta /i, ''), cat: payCat.id, row: payCat.row || payCat.name, currency: cur, amount, estado: $('#sPagado') && $('#sPagado').checked ? 'pago' : 'pend', pagadoEl: $('#sPagado') && $('#sPagado').checked ? fecha : null, synced: false, known: old ? old.known : false });
         pagos++;
       };
       if (monto > 0) mkPago(pagoId, 'ARS', monto);
@@ -1021,10 +1070,11 @@ function openCats() {
         <div class="l1"><input class="in" data-k="emoji" data-i="${i}" value="${esc(c.emoji)}" maxlength="4"><input class="in" data-k="name" data-i="${i}" value="${esc(c.name)}"><button class="icon-btn" data-del="${i}">🗑</button></div>
         <div class="l2"><div><small>Fila del Sheet</small><input class="in" data-k="row" data-i="${i}" value="${esc(c.row || 'Varios')}"></div>
         <div><small>Monto fijo</small><input class="in" data-k="preset" data-i="${i}" inputmode="decimal" value="${c.preset ? numStr(c.preset) : ''}"></div>
+        <div><small>¿Pagué?</small><select class="in" data-k="pago" data-i="${i}"><option value="no" ${c.pago ? '' : 'selected'}>No sigo</option><option value="si" ${c.pago ? 'selected' : ''}>Sí, seguir</option></select></div>
         <div><small>Tipo</small><select class="in" data-k="kind" data-i="${i}"><option value="gasto" ${(c.kind || 'gasto') === 'gasto' ? 'selected' : ''}>Gasto</option><option value="ingreso" ${c.kind === 'ingreso' ? 'selected' : ''}>Ingreso</option></select></div></div></div>`).join('') +
       `<button class="btn ghost" id="cAdd">+ Nueva categoría</button><button class="btn" id="cSaveC">Guardar</button><button class="btn ghost" data-a="close">Cancelar</button>`);
     const sh = $('#sheet');
-    sh.oninput = ev => { const t = ev.target; if (t.dataset.k) { const c = cats[+t.dataset.i]; c[t.dataset.k] = t.dataset.k === 'preset' ? (parseNum(t.value) || 0) : t.value; } };
+    sh.oninput = ev => { const t = ev.target; if (t.dataset.k) { const c = cats[+t.dataset.i]; c[t.dataset.k] = t.dataset.k === 'preset' ? (parseNum(t.value) || 0) : t.dataset.k === 'pago' ? t.value === 'si' : t.value; } };
     sh.onchange = sh.oninput;
     sh.onclick = ev => {
       const del = ev.target.closest('[data-del]');
@@ -1035,7 +1085,7 @@ function openCats() {
         sh.querySelectorAll('input[data-k=name]').forEach((el, i, a) => i === a.length - 1 && el.focus());
       }
       if (ev.target.id === 'cSaveC') {
-        const clean = cats.filter(c => String(c.name).trim()).map(c => ({ ...c, name: c.name.trim(), emoji: (c.emoji || '').trim() || '🏷️', row: (c.row || 'Varios').trim() || 'Varios', preset: c.preset || undefined }));
+        const clean = cats.filter(c => String(c.name).trim()).map(c => ({ ...c, name: c.name.trim(), emoji: (c.emoji || '').trim() || '🏷️', row: (c.row || 'Varios').trim() || 'Varios', preset: c.preset || undefined, pago: c.pago === true }));
         if (!clean.length) return toast('Poné al menos una categoría');
         const ids = new Set(clean.map(c => c.id));
         const fb = (clean.find(c => c.id === 'otros') || clean[0]).id;
@@ -1083,6 +1133,8 @@ document.addEventListener('click', ev => {
   else if (a === 'conn') openConn();
   else if (a === 'sync') sync(true);
   else if (a === 'cot') refreshCot(true);
+  else if (a === 'porpagar') openPorPagar();
+  else if (a === 'pagar') marcarPagado(b.dataset.id);
   else if (a === 'cambiar') openFx(null, { usd: +b.dataset.usd });
   else if (a === 'cotopen') { ui.cotOpen = !ui.cotOpen; render(); }
   else if (a === 'pull') pullAll();
