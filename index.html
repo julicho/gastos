@@ -177,7 +177,7 @@ const numStr = n => String(n).replace('.', ',');
 
 /* ---------- datos ---------- */
 const KEY = 'gastos.v2';
-const APP_VERSION = 'v21 · 3 nov 2026';
+const APP_VERSION = 'v22 · 3 nov 2026';
 // row = nombre de la fila del Sheet donde se acumula (Venta USD). Las categorías nuevas van a "Varios".
 const DEFAULT_CATS = [
   { id: 'cenas', name: 'Cenas', emoji: '🍽️', color: '#f08c00', row: 'Varios' },
@@ -537,16 +537,16 @@ function openMov(kind, id, preset = {}) {
   const d = e ? { ...e } : { type: 'mov', kind, date: today(), concept: '', cat: preset.cat || null, currency: preset.currency || lastCurrency(), amount: preset.amount || '' };
   if (!e && d.cat && cat(d.cat).cur) d.currency = cat(d.cat).cur;
   if (e && e.partes && e.partes.length > 1) d.amount = e.partes[0].v;      // en un gasto con ajustes, el campo de monto es la base
-  const only = preset.only || (e && e.cat && cat(e.cat).card ? 'card' : undefined); // 'card' limita las categorías a tarjetas (y al editar un pago de tarjeta)
+  const only = preset.only || (e && e.cat && (cat(e.cat).card ? 'card' : e.cat === 'efectivo' ? 'efectivo' : undefined)); // 'card' / 'efectivo' limitan las categorías (también al editar un pago de tarjeta o un retiro)
   let picked = !!d.cat;
-  const avail = () => S.categories.filter(c => only === 'card' ? c.card : !c.card && (c.kind || 'gasto') === d.kind);
+  const avail = () => S.categories.filter(c => only === 'card' ? c.card : only === 'efectivo' ? c.id === 'efectivo' : !c.card && c.id !== 'efectivo' && (c.kind || 'gasto') === d.kind);
   const catBtns = () => avail().map(c => `<button type="button" data-cat="${c.id}" style="--c:${c.color}" class="${d.cat === c.id ? 'on' : ''}"><span>${c.emoji}</span>${esc(c.name)}</button>`).join('');
-  const title = e ? (d.kind === 'ingreso' ? 'Editar ingreso' : 'Editar gasto') : (only === 'card' ? 'Pago de tarjeta' : d.kind === 'ingreso' ? 'Nuevo ingreso' : 'Nuevo gasto');
+  const title = e ? (d.kind === 'ingreso' ? 'Editar ingreso' : 'Editar gasto') : (only === 'card' ? 'Pago de tarjeta' : only === 'efectivo' ? 'Retiro de efectivo' : d.kind === 'ingreso' ? 'Nuevo ingreso' : 'Nuevo gasto');
   openSheet(`<h2>${title}</h2>
     <input class="in amount" id="fAmt" inputmode="decimal" placeholder="0" value="${d.amount === '' ? '' : numStr(d.amount)}" autocomplete="off">
     <div class="seg" style="margin-top:8px" id="fCur"><button type="button" data-c="ARS">ARS $</button><button type="button" data-c="USD">USD US$</button></div>
     <div id="fAjustes"></div>
-    <label class="f">Concepto ${only === 'card' ? '(opcional)' : ''}</label>
+    <label class="f">Concepto ${only ? '(opcional)' : ''}</label>
     <input class="in" id="fCon" placeholder="${d.kind === 'ingreso' ? 'Ej: me devuelve Fede' : 'Ej: Uber, cena, padel…'}" value="${esc(d.concept)}" autocomplete="off">
     <div class="hint" id="fHint"></div>
     <label class="f">Categoría</label><div class="cats" id="fCats">${catBtns()}</div>
@@ -1149,7 +1149,7 @@ document.addEventListener('click', ev => {
     const t = b.dataset.t;
     if (t === 'fx') openFx();
     else if (t === 'tarjeta') openMov('gasto', null, { only: 'card', currency: 'ARS' });
-    else if (t === 'efectivo') openMov('gasto', null, { cat: 'efectivo', currency: 'ARS' });
+    else if (t === 'efectivo') openMov('gasto', null, { only: 'efectivo', cat: 'efectivo', currency: 'ARS' });
     else openMov(t);
   }
   else if (a === 'preset') { const c = cat(b.dataset.id); openMov('gasto', null, { cat: c.id, amount: c.preset, currency: 'ARS' }); }
