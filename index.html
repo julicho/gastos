@@ -177,7 +177,7 @@ const numStr = n => String(n).replace('.', ',');
 
 /* ---------- datos ---------- */
 const KEY = 'gastos.v2';
-const APP_VERSION = 'v20 · 2 nov 2026';
+const APP_VERSION = 'v21 · 3 nov 2026';
 // row = nombre de la fila del Sheet donde se acumula (Venta USD). Las categorías nuevas van a "Varios".
 const DEFAULT_CATS = [
   { id: 'cenas', name: 'Cenas', emoji: '🍽️', color: '#f08c00', row: 'Varios' },
@@ -537,9 +537,9 @@ function openMov(kind, id, preset = {}) {
   const d = e ? { ...e } : { type: 'mov', kind, date: today(), concept: '', cat: preset.cat || null, currency: preset.currency || lastCurrency(), amount: preset.amount || '' };
   if (!e && d.cat && cat(d.cat).cur) d.currency = cat(d.cat).cur;
   if (e && e.partes && e.partes.length > 1) d.amount = e.partes[0].v;      // en un gasto con ajustes, el campo de monto es la base
-  const only = preset.only; // 'card' limita las categorías a tarjetas
+  const only = preset.only || (e && e.cat && cat(e.cat).card ? 'card' : undefined); // 'card' limita las categorías a tarjetas (y al editar un pago de tarjeta)
   let picked = !!d.cat;
-  const avail = () => S.categories.filter(c => only === 'card' ? c.card : (c.kind || 'gasto') === d.kind);
+  const avail = () => S.categories.filter(c => only === 'card' ? c.card : !c.card && (c.kind || 'gasto') === d.kind);
   const catBtns = () => avail().map(c => `<button type="button" data-cat="${c.id}" style="--c:${c.color}" class="${d.cat === c.id ? 'on' : ''}"><span>${c.emoji}</span>${esc(c.name)}</button>`).join('');
   const title = e ? (d.kind === 'ingreso' ? 'Editar ingreso' : 'Editar gasto') : (only === 'card' ? 'Pago de tarjeta' : d.kind === 'ingreso' ? 'Nuevo ingreso' : 'Nuevo gasto');
   openSheet(`<h2>${title}</h2>
