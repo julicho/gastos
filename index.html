@@ -178,7 +178,7 @@ const numStr = n => String(n).replace('.', ',');
 
 /* ---------- datos ---------- */
 const KEY = 'gastos.v2';
-const APP_VERSION = 'v24 · 4 nov 2026';
+const APP_VERSION = 'v25 · 4 nov 2026';
 // row = nombre de la fila del Sheet donde se acumula (Venta USD). Las categorías nuevas van a "Varios".
 const DEFAULT_CATS = [
   { id: 'cenas', name: 'Cenas', emoji: '🍽️', color: '#f08c00', row: 'Varios' },
@@ -1115,6 +1115,7 @@ function stmtPreview(pack) {
   const slug = String(pack.id).replace(/[^A-Za-z0-9]/g, '_');
   const pagoId = 'pago_' + slug, pagoUsdId = 'pagousd_' + slug;
   const pagoPrev = S.entries.find(e => e.id === pagoId && !e.deleted);
+  const catOpts = cur => [...new Set([...stmtCats(), cur])].sort((a, b) => a === 'Otros' ? 1 : b === 'Otros' ? -1 : a.localeCompare(b, 'es')).map(c => `<option value="${esc(c)}" ${c === cur ? 'selected' : ''}>${esc(c)}</option>`).join('') + '<option value="__nueva">➕ Nueva categoría…</option>';
   openSheet(`<h2>Revisar resumen</h2>
     <div class="card" style="box-shadow:none"><b>${esc(pack.card)}</b> · cierre ${dm(pack.cierre)} · vence ${dm(pack.vence || pack.cierre)}<br>
       <span class="sub" style="margin:0">${pack.lines.length} consumos · se carga hoy, ${dm(today())}</span><br>
@@ -1130,12 +1131,20 @@ function stmtPreview(pack) {
       ${sumUsd ? `<label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:14px"><input type="checkbox" id="sPagoUsd" ${S.entries.some(e => e.id === pagoUsdId && !e.deleted) ? 'checked' : ''}> También el pago de ${money(sumUsd, 'USD')} en dólares</label>` : ''}
       ${pagoPrev ? '<div class="hint" style="color:var(--mute)">Ya había un pago cargado: se actualiza, no se duplica.</div>' : ''}</div>` : ''}
     <p class="note">Corregí la categoría de lo que no coincida (podés escribir una nueva).</p>
-    <datalist id="stmtCats">${stmtCats().map(c => `<option value="${esc(c)}">`).join('')}</datalist>
     <div id="sList">` + sorted.map(({ l, i }) => `<div class="srow"><div class="top"><span>${dm(l.d)} · ${esc(l.n)}${l.q ? ` · cuota ${l.q[0]}/${l.q[1]}` : ''}</span><b>${money(l.v, l.m)}</b></div>
-      <input class="in" list="stmtCats" data-i="${i}" value="${esc(l.c)}"></div>`).join('') + `</div>
+      <select class="in" data-i="${i}" data-prev="${esc(l.c)}">${catOpts(l.c)}</select></div>`).join('') + `</div>
     <button class="btn" id="sSave">Guardar resumen</button><button class="btn ghost" data-a="stmt">Volver</button>`);
+  $('#sList').onchange = ev => {
+    const sel = ev.target; if (!sel.matches('select[data-i]')) return;
+    if (sel.value !== '__nueva') { sel.dataset.prev = sel.value; return; }
+    const nombre = (prompt('Nombre de la nueva categoría:') || '').trim();
+    if (!nombre) { sel.value = sel.dataset.prev; return; }
+    const nuevo = nombre.charAt(0).toUpperCase() + nombre.slice(1);
+    document.querySelectorAll('#sList select[data-i]').forEach(x => { if (![...x.options].some(o => o.value === nuevo)) x.insertBefore(new Option(nuevo, nuevo), x.options[x.options.length - 1]); });
+    sel.value = nuevo; sel.dataset.prev = nuevo;
+  };
   $('#sSave').onclick = () => {
-    document.querySelectorAll('#sList input[data-i]').forEach(inp => { pack.lines[+inp.dataset.i].c = inp.value.trim() || 'Otros'; });
+    document.querySelectorAll('#sList select[data-i]').forEach(sel => { pack.lines[+sel.dataset.i].c = sel.value === '__nueva' ? 'Otros' : sel.value || 'Otros'; });
     pack.mes = $('#sMes').value || pack.mes;
     let pagos = 0;
     if (payCat && $('#sPago') && $('#sPago').checked) {
