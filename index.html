@@ -178,7 +178,7 @@ const numStr = n => String(n).replace('.', ',');
 
 /* ---------- datos ---------- */
 const KEY = 'gastos.v2';
-const APP_VERSION = 'v23 · 3 nov 2026';
+const APP_VERSION = 'v24 · 4 nov 2026';
 // row = nombre de la fila del Sheet donde se acumula (Venta USD). Las categorías nuevas van a "Varios".
 const DEFAULT_CATS = [
   { id: 'cenas', name: 'Cenas', emoji: '🍽️', color: '#f08c00', row: 'Varios' },
@@ -867,7 +867,18 @@ const DEFAULT_RULES = [
   { c: "BOOKING", n: "Booking", k: "Viajes" },
   { c: "AIRBNB", n: "Airbnb", k: "Viajes" },
   { c: "DESPEGAR", n: "Despegar", k: "Viajes" },
-  { c: "LATAM", n: "Latam", k: "Viajes" }
+  { c: "LATAM", n: "Latam", k: "Viajes" },
+  { c: "CARREFOUR", n: "Carrefour", k: "Supermercado" },
+  { c: "OPEN25", n: "Open 25", k: "Supermercado" },
+  { c: "SUBEVIAJES", n: "SUBE", k: "Transporte" },
+  { c: "TIDAL", n: "Tidal", k: "Suscripciones" },
+  { c: "ADOBE", n: "Adobe", k: "Suscripciones" },
+  { c: "YOUTUBE", n: "YouTube", k: "Suscripciones" },
+  { c: "GOOGLE *GOOGLE", n: "Google", k: "Suscripciones" },
+  { c: "PERSONAL 1", n: "Personal", k: "Servicios" },
+  { c: "BR BURGERS", n: "BR Burgers", k: "Salidas" },
+  { c: "CASA DEL REGALO", n: "La Casa del Regalo", k: "Compras" },
+  { c: "WASHINNLAUNDR", n: "Washinn Laundry", k: "Hogar" }
 ];
 const MES_NUM = { Enero: 1, Febrero: 2, Marzo: 3, Abril: 4, Mayo: 5, Junio: 6, Julio: 7, Agosto: 8, Septiembre: 9, Octubre: 10, Noviembre: 11, Diciembre: 12 };
 const numAR = s => parseFloat(String(s).replace(/\./g, '').replace(',', '.'));
@@ -909,7 +920,7 @@ const learnedCats = () => {
   [...S.statements].filter(x => !x.deleted).sort((a, b) => a.cierre.localeCompare(b.cierre)).forEach(x => x.lines.forEach(l => { m[norm(l.n)] = l.c; }));
   return m;
 };
-const limpiarComercio = d => d.replace(/^=/, '').replace(/\s+\d{6,}.*$/, '').trim().toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase()) || d;
+const limpiarComercio = d => d.replace(/^=/, '').replace(/^(?:MERPAGO|PAYU\*AR|DLO|PVS|MODOQRI|PROPINA)\*\s*/i, '').replace(/\s+C\.\d{2}\/\d{2}$/, '').replace(/\s+\d{6,}.*$/, '').trim().replace(/^(.+)-\1$/i, '$1').toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase()) || d;
 
 function parseAmexTexto(texto, titular) {
   if (!texto.includes('American Express')) throw new Error('FORMATO');
@@ -964,23 +975,105 @@ function parseAmexTexto(texto, titular) {
     totalArs: totales[titular + '|ARS'], totalUsd: totales[titular + '|USD'] || 0, lines, nuevos };
 }
 
+// ---- VISA y Mastercard (Banco Ciudad). Son resúmenes familiares: el de Julián es solo un bloque.
+const MES_ABR = { ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6, jul: 7, ago: 8, sep: 9, oct: 10, nov: 11, dic: 12 };
+const nombreCoincide = (titular, nombre) => { const n = norm(nombre).split(' '); return norm(titular).split(' ').filter(Boolean).every(w => n.includes(w)); };
+const isoDMY = (d, m, y) => `20${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+// Arma el paquete a partir de los bloques por titular (los consumos de cada uno + su total), igual para todas las tarjetas.
+function armarPaquete(card, idpre, cierre, vence, bloques, titular) {
+  const dias = (new Date(vence) - new Date(cierre)) / 864e5;
+  if (!(dias >= 2 && dias <= 25)) throw new Error('Las fechas de cierre y vencimiento no tienen sentido; no lo cargo para no equivocarme.');
+  const mio = bloques.find(b => nombreCoincide(titular, b.nombre));
+  if (!mio) { const e = new Error('TITULAR'); e.titulares = bloques.map(b => b.nombre); throw e; }
+  const propias = mio.items;
+  for (const mon of ['ARS', 'USD']) {
+    const suma = Math.round(propias.filter(p => p.m === mon).reduce((a, p) => a + p.v, 0) * 100) / 100, esperado = mon === 'ARS' ? mio.totalArs : mio.totalUsd;
+    if (Math.abs(suma - esperado) > 0.01) throw new Error(`La suma de ${mon} (${suma}) no coincide con el total del resumen (${esperado}). No lo cargo para no equivocarme.`);
+  }
+  const learned = learnedCats(), nuevos = [];
+  const lines = propias.sort((a, b) => a.m.localeCompare(b.m) || a.d.localeCompare(b.d)).map(p => {
+    const r = DEFAULT_RULES.find(x => p.desc.toUpperCase().includes(x.c.toUpperCase()));
+    const n = r ? r.n : limpiarComercio(p.desc);
+    let c = r ? r.k : 'Otros';
+    if (learned[norm(n)]) c = learned[norm(n)]; else if (!r) nuevos.push(n);
+    return { d: p.d, v: Math.round(p.v * 100) / 100, m: p.m, c, n, q: p.q };
+  });
+  return { id: idpre + '-' + cierre, card, cierre, vence, titular, totalArs: mio.totalArs, totalUsd: mio.totalUsd, lines, nuevos };
+}
+
+function parseVisaTexto(texto, titular) {
+  const L = texto.split('\n').map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const cab = L.join('\n');
+  const fecha2 = re => { const m = re.exec(cab); return m ? isoDMY(m[1], MES_ABR[m[2].toLowerCase()], m[3]) : null; };
+  const cierre = fecha2(/Cierre actual: (\d{1,2}) ([a-z]{3})[a-z]*\s*\.?\s*(\d{2})/i), vence = fecha2(/Vencimiento actual: (\d{1,2}) ([a-z]{3})[a-z]*\s*\.?\s*(\d{2})/i);
+  if (!cierre || !vence) throw new Error('No encontré las fechas de cierre y vencimiento del resumen.');
+  const TXR = /^(\d{2})-(\d{2})-(\d{2}) (\d{6}) (.+?) ([\d.]+,\d{2})$/;      // las líneas sin comprobante (pagos, impuestos, devoluciones) son de la cuenta, no de un titular
+  const TOTR = /^TARJETA \d{4} Total Consumos de (.+?) ([\d.]+,\d{2}) ([\d.]+,\d{2})$/;
+  let pend = []; const bloques = [];
+  L.forEach(l => {
+    const m = TXR.exec(l);
+    if (m) {
+      let desc = m[5], v = numAR(m[6]), mon = 'ARS';
+      const u = /\sUSD [\d.]+,\d{2}$/.exec(desc); if (u) { desc = desc.slice(0, u.index); mon = 'USD'; }
+      const q = /\sC\.(\d{2})\/(\d{2})$/.exec(desc);
+      pend.push({ d: isoDMY(m[1], +m[2], m[3]), v, m: mon, desc, q: q ? [+q[1], +q[2], v] : null });
+      return;
+    }
+    const t = TOTR.exec(l);
+    if (t) { bloques.push({ nombre: t[1], items: pend, totalArs: numAR(t[2]), totalUsd: numAR(t[3]) }); pend = []; }
+  });
+  if (!bloques.length) throw new Error('No pude leer los consumos del resumen VISA.');
+  return armarPaquete('Tarjeta VISA', 'visa', cierre, vence, bloques, titular);
+}
+
+function parseMcTexto(texto, titular) {
+  const L = texto.split('\n').map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const cab = L.join('\n');
+  const fecha2 = re => { const m = re.exec(cab); return m ? isoDMY(m[1], MES_ABR[m[2].toLowerCase()], m[3]) : null; };
+  const cierre = fecha2(/Estado de cuenta al: (\d{1,2})-([A-Za-z]{3})-(\d{2})/), vence = fecha2(/Vencimiento actual: (\d{1,2})-([A-Za-z]{3})-(\d{2})/);
+  if (!cierre || !vence) throw new Error('No encontré las fechas de cierre y vencimiento del resumen.');
+  const TXR = /^(\d{2})-([A-Za-z]{3})-(\d{2}) (.+?) (\d{5}) ([\d.]*\d,\d{2})$/;
+  const TOTR = /^TOTAL (?:TITULAR|ADICIONAL) (.+?) ([\d.]*\d,\d{2}) ([\d.]*\d,\d{2})$/;
+  let pend = []; const bloques = [];
+  L.forEach(l => {
+    const t = TOTR.exec(l);
+    if (t) { bloques.push({ nombre: t[1], items: pend, totalArs: numAR(t[2]), totalUsd: numAR(t[3]) }); pend = []; return; }
+    const m = TXR.exec(l);
+    if (m && MES_ABR[m[2].toLowerCase()]) {
+      let desc = m[4]; const q = /\s(\d{2})\/(\d{2})$/.exec(desc), v = numAR(m[6]);
+      if (q) desc = desc.slice(0, q.index);
+      pend.push({ d: isoDMY(m[1], MES_ABR[m[2].toLowerCase()], m[3]), v, m: 'ARS', desc, q: q ? [+q[1], +q[2], v] : null });
+    }
+  });
+  if (!bloques.length) throw new Error('No pude leer los consumos del resumen Mastercard.');
+  return armarPaquete('Tarjeta MC', 'mc', cierre, vence, bloques, titular);
+}
+
+function parseResumenTexto(texto, titular) {
+  if (texto.includes('American Express')) return parseAmexTexto(texto, titular);
+  if (/TARJETA \d{4} Total Consumos de/.test(texto)) return parseVisaTexto(texto, titular);
+  if (/MASTERCARD/i.test(texto) && /TOTAL (TITULAR|ADICIONAL) /.test(texto)) return parseMcTexto(texto, titular);
+  throw new Error('FORMATO');
+}
+
 async function importarPdf(file) {
   toast('Leyendo el resumen…');
   try {
     const texto = await pdfToText(await file.arrayBuffer());
     if (texto.replace(/=====PAGINA \d+=====|\s/g, '').length < 50) throw new Error('El PDF no tiene texto (parece una foto escaneada). Pedí el resumen en PDF original.');
     let pack;
-    try { pack = parseAmexTexto(texto, S.settings.titular || 'JULIAN MORLA'); }
+    try { pack = parseResumenTexto(texto, S.settings.titular || 'JULIAN MORLA'); }
     catch (e) {
       if (e.message !== 'TITULAR') throw e;
       const nombre = (prompt(`No encuentro "${S.settings.titular || 'JULIAN MORLA'}" en el resumen. Titulares que figuran: ${e.titulares.join(', ')}.\nEscribí tu nombre tal cual figura:`) || '').trim().toUpperCase();
       if (!nombre) return;
-      pack = parseAmexTexto(texto, nombre); S.settings.titular = nombre; save();
+      pack = parseResumenTexto(texto, nombre); S.settings.titular = nombre; save();
     }
     if (pack.nuevos.length) toast(`Revisá la categoría de: ${pack.nuevos.slice(0, 3).join(', ')}${pack.nuevos.length > 3 ? '…' : ''}`);
     stmtPreview(pack);
   } catch (e) {
-    toast(e.message === 'FORMATO' ? 'Por ahora solo leo resúmenes de AMEX. Para VISA o MC necesito ver uno de muestra.' : e.name === 'PasswordException' ? 'El PDF tiene contraseña. Quitásela y probá de nuevo.' : e.name === 'InvalidPDFException' ? 'No pude abrir el archivo como PDF. Probá con el PDF original del resumen.' : e.message);
+    toast(e.message === 'FORMATO' ? 'No reconozco este resumen. Leo AMEX, VISA y Mastercard (Banco Ciudad); si es otro formato, pasame uno de muestra.' : e.name === 'PasswordException' ? 'El PDF tiene contraseña. Quitásela y probá de nuevo.' : e.name === 'InvalidPDFException' ? 'No pude abrir el archivo como PDF. Probá con el PDF original del resumen.' : e.message);
   }
 }
 
