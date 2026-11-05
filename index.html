@@ -178,7 +178,7 @@ const numStr = n => String(n).replace('.', ',');
 
 /* ---------- datos ---------- */
 const KEY = 'gastos.v2';
-const APP_VERSION = 'v25 · 4 nov 2026';
+const APP_VERSION = 'v26 · 4 nov 2026';
 // row = nombre de la fila del Sheet donde se acumula (Venta USD). Las categorías nuevas van a "Varios".
 const DEFAULT_CATS = [
   { id: 'cenas', name: 'Cenas', emoji: '🍽️', color: '#f08c00', row: 'Varios' },
@@ -492,7 +492,7 @@ function reportView() {
     }).join('') + `</div>`;
     // gastos hormiga: conceptos que se repiten
     const byC = {};
-    items.forEach(e => { const k = norm(e.concept) || '(sin concepto)'; const b = byC[k] ||= { label: e.concept || '(sin concepto)', v: 0, n: 0 }; b.v += e.amount; b.n++; });
+    items.forEach(e => { const c = cat(e.cat), k = norm(e.concept) || 'cat:' + c.id; const b = byC[k] ||= { label: e.concept || `${c.emoji} ${c.name}`, v: 0, n: 0 }; b.v += e.amount; b.n++; });
     const top = Object.values(byC).sort((a, b) => b.v - a.v).slice(0, 8);
     html += `<div class="card"><h3>Dónde se va más plata</h3>` + top.map(b => `<div class="lrow"><span>${esc(b.label)} <span style="color:var(--mute)">×${b.n}</span></span><b>${M(b.v)}</b></div>`).join('') + `</div>`;
   }
