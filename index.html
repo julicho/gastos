@@ -178,7 +178,7 @@ const numStr = n => String(n).replace('.', ',');
 
 /* ---------- datos ---------- */
 const KEY = 'gastos.v2';
-const APP_VERSION = 'v26 · 4 nov 2026';
+const APP_VERSION = 'v28 · 10 nov 2026';
 // row = nombre de la fila del Sheet donde se acumula (Venta USD). Las categorías nuevas van a "Varios".
 const DEFAULT_CATS = [
   { id: 'cenas', name: 'Cenas', emoji: '🍽️', color: '#f08c00', row: 'Varios' },
@@ -399,6 +399,7 @@ function listView() {
         <div><div class="label">Saldo en pesos</div><div class="big ${hasSa && sa < 0 ? 'neg' : ''}">${hasSa ? money(sa) : '—'}</div></div>
         <div><div class="label">Ahorros</div><div class="big">${ruTxt}</div></div></div>
         ${hasSa && sa < 0 ? faltaCambiar(-sa) : ''}
+        ${usdMesLinea()}
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px"><div class="sub" style="margin:0">Según tu planilla${hora}</div>
         ${hasRu ? `<button class="pill" data-a="runway">${ui.showRunway ? '🙈 Ocultar' : '👁 Ver ahorros'}</button>` : ''}</div></div>`;
     }
@@ -756,11 +757,22 @@ function cotBanner() {
 }
 
 /* ---------- sincronización con el Sheet ---------- */
+// Columna F de "Saldos ARS" en la planilla: lo que entró menos lo que salió en dólares este mes (conversiones, gastos en USD, fondeos).
+function usdMesLinea() {
+  const u = S.settings.saldoUsd;
+  if (u == null || u === '' || isNaN(+u)) return '';
+  if (S.settings.ultimoMes && S.settings.ultimoMes !== monthKey(ui.y, ui.m)) return '';
+  const v = Math.round(+u * 100) / 100;
+  return `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;padding-top:8px;border-top:1px solid var(--line, rgba(128,128,128,.25))">
+    <span class="sub" style="margin:0">Balance USD este mes</span><b class="${v < 0 ? 'neg' : 'pos'}">${v < 0 ? '−' : ''}${money(Math.abs(v), 'USD')}</b></div>`;
+}
 function applyStatus(st) {
   if (!st) return;
   S.settings.runway = st.runway === '' ? null : st.runway;
   S.settings.runwayText = st.runwayText;
   if (st.saldoArs !== undefined) S.settings.saldoArs = st.saldoArs === '' ? null : st.saldoArs;
+  if (st.saldoUsd !== undefined) S.settings.saldoUsd = st.saldoUsd === '' ? null : st.saldoUsd;
+  if (st.ultimoMes !== undefined) S.settings.ultimoMes = st.ultimoMes;
 }
 async function api(body) {
   const { url, token } = S.settings;
